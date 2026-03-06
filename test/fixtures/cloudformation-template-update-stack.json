@@ -1,0 +1,158 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "The AWS CloudFormation template for this Serverless application",
+  "Resources": {
+    "ServerlessDeploymentBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ServerlessDeploymentBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {"Ref": "ServerlessDeploymentBucket"}
+      },
+      "DependsOn": "ServerlessDeploymentBucket"
+    },
+    "CustomDashresourceDashexistingDashs3": {
+      "Type": "Custom::S3",
+      "Properties": {
+        "ServiceToken": {"Fn::GetAtt": ["CustomResourceLambda", "Arn"]}
+      }
+    },
+    "HelloLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "my-service-dev-hello",
+        "Handler": "handler.hello",
+        "Runtime": "nodejs20.x",
+        "Environment": {
+          "Variables": {
+            "DB_HOST": "__SLS2CDK_SSM_0__",
+            "DB_PASSWORD": "__SLS2CDK_SSM_1__",
+            "API_KEY": "__SLS2CDK_SSM_2__",
+            "RAW_PARAM": "__SLS2CDK_SSM_3__",
+            "FUNCTION_SECRET": "__SLS2CDK_SSM_4__",
+            "STAGE": "dev",
+            "TABLE_NAME": {"Ref": "MyDynamoDBTable"}
+          }
+        }
+      },
+      "DependsOn": ["HelloLogGroup", "IamRoleLambdaExecution"]
+    },
+    "WorldLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "my-service-dev-world",
+        "Handler": "handler.world",
+        "Runtime": "nodejs20.x",
+        "Environment": {
+          "Variables": {
+            "DB_HOST": "__SLS2CDK_SSM_0__",
+            "DB_PASSWORD": "__SLS2CDK_SSM_1__",
+            "API_KEY": "__SLS2CDK_SSM_2__",
+            "RAW_PARAM": "__SLS2CDK_SSM_3__",
+            "STAGE": "dev",
+            "TABLE_NAME": {"Ref": "MyDynamoDBTable"}
+          }
+        }
+      },
+      "DependsOn": ["WorldLogGroup", "IamRoleLambdaExecution"]
+    },
+    "IamRoleLambdaExecution": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "lambda.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      }
+    },
+    "HelloLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/my-service-dev-hello"
+      }
+    },
+    "WorldLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/my-service-dev-world"
+      }
+    },
+    "MyDynamoDBTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "my-service-dev-items",
+        "AttributeDefinitions": [
+          {"AttributeName": "id", "AttributeType": "S"}
+        ],
+        "KeySchema": [
+          {"AttributeName": "id", "KeyType": "HASH"}
+        ],
+        "BillingMode": "PAY_PER_REQUEST"
+      }
+    },
+    "MyS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "my-service-dev-uploads"
+      }
+    },
+    "MyStateMachine": {
+      "Type": "AWS::StepFunctions::StateMachine",
+      "Properties": {
+        "StateMachineName": "my-service-dev-workflow",
+        "DefinitionString": {
+          "Fn::Sub": "{\"StartAt\":\"HelloStep\",\"States\":{\"HelloStep\":{\"Type\":\"Task\",\"Resource\":\"${HelloLambdaFunction.Arn}\",\"Next\":\"PassStep\"},\"PassStep\":{\"Type\":\"Pass\",\"Result\":\"passed\",\"Next\":\"WorldStep\"},\"WorldStep\":{\"Type\":\"Task\",\"Resource\":\"${WorldLambdaFunction.Arn}\",\"End\":true}}}"
+        },
+        "RoleArn": {"Fn::GetAtt": ["MyStateMachineRole", "Arn"]}
+      },
+      "DependsOn": ["MyStateMachineRole"]
+    },
+    "MyStateMachineRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "states.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ServerlessDeploymentBucketName": {
+      "Value": {"Ref": "ServerlessDeploymentBucket"}
+    },
+    "HelloLambdaFunctionArn": {
+      "Value": {"Fn::GetAtt": ["HelloLambdaFunction", "Arn"]}
+    },
+    "WorldLambdaFunctionArn": {
+      "Value": {"Fn::GetAtt": ["WorldLambdaFunction", "Arn"]}
+    },
+    "MyStateMachineArn": {
+      "Value": {"Ref": "MyStateMachine"}
+    }
+  }
+}
