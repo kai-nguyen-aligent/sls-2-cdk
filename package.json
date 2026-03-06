@@ -46,6 +46,8 @@
     "eslint": "^9",
     "oclif": "^4",
     "prettier": "^3.8.1",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "prettier-plugin-tailwindcss": "^0.7.2",
     "shx": "^0.3",
     "ts-node": "^10",
     "tsx": "^4.21.0",
