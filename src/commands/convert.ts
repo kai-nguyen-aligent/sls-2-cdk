@@ -9,6 +9,7 @@ import { runServerlessPackage } from '../steps/package.js';
 import { runServerlessPrint } from '../steps/print.js';
 import { removeResources } from '../steps/remove-resources.js';
 import { restoreServerlessYml, substituteSSM } from '../steps/substitute-ssm.js';
+import { restoreReferencedFiles, substituteVariables } from '../steps/substitute-variables.js';
 import type { Sls2CdkConfig } from '../types/index.js';
 import { loadConfig } from '../utils/config.js';
 import { writeStepOutput } from '../utils/file-io.js';
@@ -18,9 +19,9 @@ export default class Convert extends Command {
         'Convert Serverless Framework project(s) into CDK-ready artifacts by extracting and transforming the CloudFormation template.';
 
     static override examples = [
-        '<%= config.bin %> convert --output ./output',
+        '<%= config.bin %> convert --intermediate ./intermediate',
         '<%= config.bin %> convert --stage prod --config ./sls-2-cdk.config.json',
-        '<%= config.bin %> convert -i ./monorepo -o ./out',
+        '<%= config.bin %> convert -i ./monorepo -m ./out',
     ];
 
     static override flags = {
@@ -35,9 +36,10 @@ export default class Convert extends Command {
                 'Root directory to scan for Serverless Framework projects (finds all serverless.yml files recursively)',
             default: '.',
         }),
-        output: Flags.directory({
-            char: 'o',
-            description: 'Output directory for intermediate JSON files',
+        intermediate: Flags.directory({
+            char: 'm',
+            description:
+                'Directory for intermediate JSON files (default: .sls-2-cdk inside the input directory)',
             default: '.sls-2-cdk',
         }),
 
@@ -59,13 +61,13 @@ export default class Convert extends Command {
             : flags.input;
         const rootDir = path.resolve(inputDir);
 
-        const output = metadata.flags.output?.setFromDefault
+        const intermediate = metadata.flags.intermediate?.setFromDefault
             ? await input({
-                  message: 'Output directory for intermediate JSON files:',
-                  default: flags.output,
+                  message: 'Directory for intermediate JSON files:',
+                  default: flags.intermediate,
               })
-            : flags.output;
-        const outputDir = path.resolve(output);
+            : flags.intermediate;
+        const outputDir = path.resolve(rootDir, intermediate);
 
         const stage = metadata.flags.stage?.setFromDefault
             ? await input({
@@ -98,7 +100,7 @@ export default class Convert extends Command {
         fs.mkdirSync(outputDir, { recursive: true });
 
         this.log(`Root directory: ${rootDir}`);
-        this.log(`Output directory: ${outputDir}`);
+        this.log(`Intermediate directory: ${outputDir}`);
         this.log(`Stage: ${stage}`);
         this.log(`Projects found: ${projectPaths.length}`);
         this.log('---');
@@ -132,48 +134,59 @@ export default class Convert extends Command {
             this.error(`No serverless.yml or serverless.yaml found in ${servicePath}`, { exit: 1 });
         }
 
+        let modifiedFiles: string[] = [];
         try {
-            this.log('Step 1/6: Resolving serverless configuration...');
-            this.runStep('01-serverless-print', outputDir, () =>
-                runServerlessPrint(servicePath, serverlessYmlPath, stage)
+            this.log('Step 1/7: Substituting variables in referenced files...');
+            const varResult = this.runStep('01-substitute-variables', outputDir, () =>
+                substituteVariables(serverlessYmlPath)
             );
+            modifiedFiles = varResult.data.filesModified;
 
-            this.log('Step 2/6: Substituting SSM parameters...');
+            this.log('Step 2/7: Substituting SSM parameters...');
             const ssmResult = this.runStep('02-ssm-substitution', outputDir, () =>
                 substituteSSM(serverlessYmlPath)
             );
 
-            this.log('Step 3/6: Running serverless package...');
-            const packageResult = this.runStep('03-package', outputDir, () =>
+            this.log('Step 3/7: Resolving serverless configuration...');
+            this.runStep('03-serverless-print', outputDir, () =>
+                runServerlessPrint(servicePath, serverlessYmlPath, stage)
+            );
+
+            this.log('Step 4/7: Running serverless package...');
+            const packageResult = this.runStep('04-package', outputDir, () =>
                 runServerlessPackage(servicePath, stage)
             );
 
-            this.log('Step 4/6: Removing Serverless-specific resources...');
+            this.log('Step 5/7: Removing Serverless-specific resources...');
             const templatePath = packageResult.data.templatePath;
             const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
-            const removeResult = this.runStep('04-remove-resources', outputDir, () =>
+            const removeResult = this.runStep('05-remove-resources', outputDir, () =>
                 removeResources(template, config)
             );
 
-            this.log('Step 5/6: Building resource map...');
-            const resourceMapResult = this.runStep('05-resource-map', outputDir, () =>
+            this.log('Step 6/7: Building resource map...');
+            const resourceMapResult = this.runStep('06-resource-map', outputDir, () =>
                 buildResourceMap(removeResult.data.template)
             );
 
-            this.log('Step 6/6: Building Lambda environment variable map...');
-            const envMapResult = this.runStep('06-env-map', outputDir, () =>
+            this.log('Step 7/7: Building Lambda environment variable map...');
+            const envMapResult = this.runStep('07-env-map', outputDir, () =>
                 buildEnvMap(removeResult.data.template)
             );
 
             // Summary
             this.log('---');
             this.log('Conversion complete!');
+            this.log(
+                `  Var substitutions: ${varResult.data.count} (across ${modifiedFiles.length} files)`
+            );
             this.log(`  SSM substitutions: ${ssmResult.data.count}`);
             this.log(`  Resources removed: ${removeResult.data.removed.length}`);
             this.log(`  Resources mapped:  ${resourceMapResult.data.totalCount}`);
             this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
             this.log(`  Output files in:   ${outputDir}`);
         } finally {
+            restoreReferencedFiles(modifiedFiles);
             restoreServerlessYml(serverlessYmlPath);
         }
     }
