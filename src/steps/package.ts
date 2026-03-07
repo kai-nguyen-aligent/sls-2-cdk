@@ -9,7 +9,7 @@ export interface PackageResult {
 
 export function runServerlessPackage(servicePath: string, stage: string): PackageResult {
     try {
-        execSync(`npx serverless@3.38.4 package --stage ${stage}`, {
+        execSync(`npx serverless@3.39.0 package --stage ${stage}`, {
             cwd: servicePath,
             stdio: 'inherit',
             timeout: 300_000,

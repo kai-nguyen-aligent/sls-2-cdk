@@ -1,3 +1,4 @@
+import { confirm, input } from '@inquirer/prompts';
 import { Command, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -5,6 +6,7 @@ import * as path from 'node:path';
 import { buildEnvMap } from '../steps/build-env-map.js';
 import { buildResourceMap } from '../steps/build-resource-map.js';
 import { runServerlessPackage } from '../steps/package.js';
+import { runServerlessPrint } from '../steps/print.js';
 import { removeResources } from '../steps/remove-resources.js';
 import { restoreServerlessYml, substituteSSM } from '../steps/substitute-ssm.js';
 import type { Sls2CdkConfig } from '../types/index.js';
@@ -18,7 +20,7 @@ export default class Convert extends Command {
     static override examples = [
         '<%= config.bin %> convert --output ./output',
         '<%= config.bin %> convert --stage prod --config ./sls-2-cdk.config.json',
-        '<%= config.bin %> convert -i ./svc1 -i ./svc2 -o ./out',
+        '<%= config.bin %> convert -i ./monorepo -o ./out',
     ];
 
     static override flags = {
@@ -29,9 +31,9 @@ export default class Convert extends Command {
         }),
         input: Flags.directory({
             char: 'i',
-            description: 'Path(s) to Serverless Framework project(s)',
-            multiple: true,
-            default: ['.'],
+            description:
+                'Root directory to scan for Serverless Framework projects (finds all serverless.yml files recursively)',
+            default: '.',
         }),
         output: Flags.directory({
             char: 'o',
@@ -47,23 +49,62 @@ export default class Convert extends Command {
     };
 
     async run(): Promise<void> {
-        const { flags } = await this.parse(Convert);
+        const { flags, metadata } = await this.parse(Convert);
 
-        const outputDir = path.resolve(flags.output);
-        const stage = flags.stage;
-        const config = loadConfig(flags.config);
-        const inputPaths = flags.input.map((p: string) => path.resolve(p));
-        const isMultiProject = inputPaths.length > 1;
+        const inputDir = metadata.flags.input?.setFromDefault
+            ? await input({
+                  message: 'Root directory to scan for Serverless Framework projects:',
+                  default: flags.input,
+              })
+            : flags.input;
+        const rootDir = path.resolve(inputDir);
+
+        const output = metadata.flags.output?.setFromDefault
+            ? await input({
+                  message: 'Output directory for intermediate JSON files:',
+                  default: flags.output,
+              })
+            : flags.output;
+        const outputDir = path.resolve(output);
+
+        const stage = metadata.flags.stage?.setFromDefault
+            ? await input({
+                  message: 'Stage name for serverless package:',
+                  default: flags.stage,
+              })
+            : flags.stage;
+
+        let configPath = flags.config;
+        if (!configPath) {
+            const wantsConfig = await confirm({
+                message: 'Do you want to provide a config file for resource removal?',
+                default: false,
+            });
+            if (wantsConfig) {
+                configPath = await input({ message: 'Path to config file:' });
+            }
+        }
+
+        const config = loadConfig(configPath);
+
+        // Discover all serverless.yml/yaml files under the root directory
+        const projectPaths = this.discoverProjects(rootDir);
+        if (projectPaths.length === 0) {
+            this.error(`No serverless.yml or serverless.yaml found under ${rootDir}`, { exit: 1 });
+        }
+
+        const isMultiProject = projectPaths.length > 1;
 
         fs.mkdirSync(outputDir, { recursive: true });
 
+        this.log(`Root directory: ${rootDir}`);
         this.log(`Output directory: ${outputDir}`);
         this.log(`Stage: ${stage}`);
-        this.log(`Projects: ${inputPaths.length}`);
+        this.log(`Projects found: ${projectPaths.length}`);
         this.log('---');
 
-        for (const servicePath of inputPaths) {
-            const projectName = path.basename(servicePath);
+        for (const servicePath of projectPaths) {
+            const projectName = path.relative(rootDir, servicePath) || path.basename(servicePath);
             const projectOutputDir = isMultiProject ? path.join(outputDir, projectName) : outputDir;
 
             if (isMultiProject) {
@@ -92,30 +133,35 @@ export default class Convert extends Command {
         }
 
         try {
-            this.log('Step 1/5: Substituting SSM parameters...');
-            const ssmResult = this.runStep('01-ssm-substitution', outputDir, () =>
+            this.log('Step 1/6: Resolving serverless configuration...');
+            this.runStep('01-serverless-print', outputDir, () =>
+                runServerlessPrint(servicePath, serverlessYmlPath, stage)
+            );
+
+            this.log('Step 2/6: Substituting SSM parameters...');
+            const ssmResult = this.runStep('02-ssm-substitution', outputDir, () =>
                 substituteSSM(serverlessYmlPath)
             );
 
-            this.log('Step 2/5: Running serverless package...');
-            const packageResult = this.runStep('02-package', outputDir, () =>
+            this.log('Step 3/6: Running serverless package...');
+            const packageResult = this.runStep('03-package', outputDir, () =>
                 runServerlessPackage(servicePath, stage)
             );
 
-            this.log('Step 3/5: Removing Serverless-specific resources...');
+            this.log('Step 4/6: Removing Serverless-specific resources...');
             const templatePath = packageResult.data.templatePath;
             const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
-            const removeResult = this.runStep('03-remove-resources', outputDir, () =>
+            const removeResult = this.runStep('04-remove-resources', outputDir, () =>
                 removeResources(template, config)
             );
 
-            this.log('Step 4/5: Building resource map...');
-            const resourceMapResult = this.runStep('04-resource-map', outputDir, () =>
+            this.log('Step 5/6: Building resource map...');
+            const resourceMapResult = this.runStep('05-resource-map', outputDir, () =>
                 buildResourceMap(removeResult.data.template)
             );
 
-            this.log('Step 5/5: Building Lambda environment variable map...');
-            const envMapResult = this.runStep('05-env-map', outputDir, () =>
+            this.log('Step 6/6: Building Lambda environment variable map...');
+            const envMapResult = this.runStep('06-env-map', outputDir, () =>
                 buildEnvMap(removeResult.data.template)
             );
 
@@ -158,6 +204,11 @@ export default class Convert extends Command {
             });
             this.error(`Step "${stepName}" failed: ${message}`, { exit: 1 });
         }
+    }
+
+    private discoverProjects(rootDir: string): string[] {
+        const matches = fs.globSync('**/serverless.{yml,yaml}', { cwd: rootDir });
+        return matches.map(match => path.resolve(rootDir, path.dirname(match)));
     }
 
     private findServerlessYml(dir: string): string | null {

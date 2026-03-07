@@ -104,9 +104,11 @@ function parseSsmReference(fullMatch: string): Omit<SsmReference, 'placeholder'>
 export function substituteSSM(serverlessYmlPath: string): SsmSubstitutionResult {
     const originalContent = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
-    // Back up the original
+    // Back up the original (skip if a backup already exists from a prior step)
     const backupPath = serverlessYmlPath + '.sls2cdk.bak';
-    fs.writeFileSync(backupPath, originalContent);
+    if (!fs.existsSync(backupPath)) {
+        fs.writeFileSync(backupPath, originalContent);
+    }
 
     const refs = findSsmReferences(originalContent);
 

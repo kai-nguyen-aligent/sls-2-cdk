@@ -34,9 +34,10 @@
     "test:coverage": "vitest run --coverage"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
+    "@inquirer/prompts": "^8.3.0",
     "@oclif/core": "^4"
   },
   "devDependencies": {

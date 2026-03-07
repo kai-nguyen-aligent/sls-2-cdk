@@ -1,12 +1,12 @@
 {
   "extends": "@aligent/ts-code-standards/tsconfigs-base",
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*"]
 }
