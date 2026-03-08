@@ -7,10 +7,10 @@ import { buildEnvMap } from '../steps/build-env-map.js';
 import { buildResourceMap } from '../steps/build-resource-map.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { removeResources } from '../steps/remove-resources.js';
-import { cleanupSubFiles, substituteVariables } from '../steps/substitute-variables.js';
+import { substituteVariables } from '../steps/substitute-variables.js';
 import type { Sls2CdkConfig } from '../types/index.js';
 import { loadConfig } from '../utils/config.js';
-import { copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
+import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
 
 export default class Convert extends Command {
     static override description =

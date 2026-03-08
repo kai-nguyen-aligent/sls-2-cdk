@@ -30,3 +30,12 @@ export function copySubstitutedFiles(
 
     return copiedFiles;
 }
+
+/**
+ * Removes all generated -sub files (serverless-sub.yml + referenced file copies).
+ */
+export function cleanupSubFiles(subFiles: string[]): void {
+    subFiles.forEach(file => {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+    });
+}
