@@ -12,7 +12,7 @@ import { restoreServerlessYml, substituteSSM } from '../steps/substitute-ssm.js'
 import { restoreReferencedFiles, substituteVariables } from '../steps/substitute-variables.js';
 import type { Sls2CdkConfig } from '../types/index.js';
 import { loadConfig } from '../utils/config.js';
-import { writeStepOutput } from '../utils/file-io.js';
+import { copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
 
 export default class Convert extends Command {
     static override description =
@@ -146,6 +146,8 @@ export default class Convert extends Command {
             const ssmResult = this.runStep('02-ssm-substitution', outputDir, () =>
                 substituteSSM(serverlessYmlPath)
             );
+
+            copySubstitutedFiles(serverlessYmlPath, modifiedFiles, outputDir);
 
             this.log('Step 3/7: Resolving serverless configuration...');
             this.runStep('03-serverless-print', outputDir, () =>

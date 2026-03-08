@@ -14,7 +14,8 @@ export interface VariableSubstitution {
 }
 
 export interface SubstituteVariablesResult {
-    substitutions: VariableSubstitution[];
+    /** Map from original variable reference to its substitution details */
+    substitutions: Record<string, VariableSubstitution>;
     count: number;
     filesModified: string[];
 }
@@ -86,7 +87,7 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
     const content = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
     const referencedFiles = findFileReferences(content, serverlessDir);
-    const substitutions: VariableSubstitution[] = [];
+    const substitutions: Record<string, VariableSubstitution> = {};
     const filesModified: string[] = [];
     let placeholderIndex = 0;
 
@@ -107,14 +108,18 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
         let modified = fileContent;
         for (let i = refs.length - 1; i >= 0; i--) {
             const ref = refs[i]!;
-            const placeholder = `__SLS2CDK_VAR_${placeholderIndex}__`;
-            substitutions.push({
-                original: ref.fullMatch,
-                placeholder,
-                filePath,
-            });
+            const existing = substitutions[ref.fullMatch];
+            const placeholder = existing
+                ? existing.placeholder
+                : `__SLS2CDK_VAR_${placeholderIndex++}__`;
+            if (!existing) {
+                substitutions[ref.fullMatch] = {
+                    original: ref.fullMatch,
+                    placeholder,
+                    filePath,
+                };
+            }
             modified = modified.slice(0, ref.start) + placeholder + modified.slice(ref.end);
-            placeholderIndex++;
         }
 
         fs.writeFileSync(filePath, modified);
@@ -123,7 +128,7 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
 
     return {
         substitutions,
-        count: substitutions.length,
+        count: Object.keys(substitutions).length,
         filesModified,
     };
 }
