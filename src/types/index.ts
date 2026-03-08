@@ -18,33 +18,32 @@ export const DEFAULT_CONFIG: Sls2CdkConfig = {
 };
 
 // ============================================================
-// SSM Substitution Types
+// Variable Substitution Types
 // ============================================================
 
-export interface SsmReference {
-    /** The full original expression, e.g. "${ssm:/app/${sls:stage}/db~true}" */
+/** Known Serverless Framework variable types that get substituted */
+export type VariableType = 'ssm' | 's3' | 'cf' | 'env' | 'aws' | 'unknown';
+
+export interface VariableSubstitution {
+    /** The full original expression, e.g. "${ssm:/app/db-host}" */
     original: string;
-    /** The path with inner variables left as-is, e.g. "/app/${sls:stage}/db" */
-    path: string;
-    /** Whether ~true was present (decrypt flag) */
-    decrypt: boolean;
-    /** Region override if present */
-    region?: string | undefined;
-    /** Whether (raw) was specified */
-    raw: boolean;
-    /** Whether (noDecrypt) was specified */
-    noDecrypt: boolean;
-    /** The placeholder that replaced it, e.g. "__SLS2CDK_SSM_0__" */
+    /** The placeholder that replaced it, e.g. "__SLS2CDK_VAR_0__" */
     placeholder: string;
+    /** Absolute path of the file this substitution was found in */
+    filePath: string;
+    /** The detected variable type */
+    variableType: VariableType;
 }
 
-export interface SsmSubstitutionResult {
-    /** The modified serverless.yml content with SSM refs replaced */
-    modifiedContent: string;
-    /** All SSM references found and their placeholder mappings */
-    substitutions: SsmReference[];
-    /** Count of substitutions made */
+export interface SubstituteVariablesResult {
+    /** All substitutions made across all files */
+    substitutions: VariableSubstitution[];
+    /** Total count of substitutions */
     count: number;
+    /** All generated -sub files (for cleanup) */
+    subFiles: string[];
+    /** Path to the generated serverless-sub.yml */
+    serverlessSubPath: string;
 }
 
 // ============================================================

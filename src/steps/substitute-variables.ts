@@ -1,24 +1,20 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type {
+    SubstituteVariablesResult,
+    VariableSubstitution,
+    VariableType,
+} from '../types/index.js';
+
 interface VarMatch {
     start: number;
     end: number;
     fullMatch: string;
 }
 
-export interface VariableSubstitution {
-    original: string;
-    placeholder: string;
-    filePath: string;
-}
-
-export interface SubstituteVariablesResult {
-    /** Map from original variable reference to its substitution details */
-    substitutions: Record<string, VariableSubstitution>;
-    count: number;
-    filesModified: string[];
-}
+/** Known Serverless Framework variable prefixes that require external resolution */
+const EXTERNAL_VARIABLE_PREFIXES = ['ssm', 's3:', 'cf:', 'env:', 'aws:'];
 
 /**
  * Finds all ${...} variable references in content, handling nested ${} by counting brace depth.
@@ -76,20 +72,88 @@ function findFileReferences(content: string, baseDir: string): string[] {
 }
 
 /**
- * Finds files referenced via ${file(...)} in serverless.yml and substitutes all ${...}
- * variable references in those files with traceable placeholders (__SLS2CDK_VAR_N__).
+ * Determines if a variable reference is one that Serverless Framework would try
+ * to resolve externally (SSM, S3, CloudFormation, env vars, AWS account info).
+ */
+function shouldSubstitute(expression: string): boolean {
+    const inner = expression.slice(2, -1);
+    return EXTERNAL_VARIABLE_PREFIXES.some(prefix => inner.startsWith(prefix));
+}
+
+/**
+ * Determines the type of a Serverless Framework variable reference.
+ */
+function classifyVariableType(expression: string): VariableType {
+    const inner = expression.slice(2, -1);
+    if (inner.startsWith('ssm')) return 'ssm';
+    if (inner.startsWith('s3:')) return 's3';
+    if (inner.startsWith('cf:') || inner.startsWith('cf.')) return 'cf';
+    if (inner.startsWith('env:')) return 'env';
+    if (inner.startsWith('aws:')) return 'aws';
+    return 'unknown';
+}
+
+/**
+ * Generates the -sub file path by inserting '-sub' before the file extension.
+ * e.g., ./env.json → ./env-sub.json, ./config.yml → ./config-sub.yml
+ */
+function getSubPath(filePath: string): string {
+    const ext = path.extname(filePath);
+    const base = filePath.slice(0, -ext.length || undefined);
+    return `${base}-sub${ext}`;
+}
+
+/**
+ * Checks if a ${file(...)} reference points to a file that was processed
+ * (i.e., has a -sub copy). If so, returns the rewritten expression with
+ * the -sub path. Otherwise returns null.
+ */
+function rewriteFileReference(
+    expression: string,
+    serverlessDir: string,
+    filePathMap: Map<string, string>
+): string | null {
+    const inner = expression.slice(2, -1); // strip ${ and }
+    if (!inner.startsWith('file(')) return null;
+
+    // Extract the file path from file(path) or file(path):key
+    const fileMatch = inner.match(/^file\(([^)]+)\)/);
+    if (!fileMatch) return null;
+
+    const relPath = fileMatch[1]!;
+    const absPath = path.resolve(serverlessDir, relPath);
+    const subAbsPath = filePathMap.get(absPath);
+    if (!subAbsPath) return null;
+
+    // Build the relative sub path from the serverless dir
+    const subRelPath = path.relative(serverlessDir, subAbsPath);
+    // Preserve the rest of the expression after file(path), e.g., ":key"
+    const suffix = inner.slice(fileMatch[0].length);
+    return `\${file(${subRelPath})${suffix}}`;
+}
+
+/**
+ * Finds files referenced via ${file(...)} in serverless.yml and substitutes
+ * all ${...} variable references across both referenced files and serverless.yml.
  *
- * This prevents `serverless print` from trying to resolve variables (e.g. SSM, env, cf)
- * inside referenced files, while still allowing the file include itself to be resolved.
+ * - Referenced files: ALL ${...} variables are substituted. New -sub copies are created.
+ * - serverless.yml: Only external variables (ssm, s3, cf, env, aws) are substituted.
+ *   ${file(...)} paths are rewritten to point to -sub copies. ${self:...}, ${sls:...},
+ *   ${opt:...} are left intact. Result is written to serverless-sub.yml.
+ *
+ * No original files are modified.
  */
 export function substituteVariables(serverlessYmlPath: string): SubstituteVariablesResult {
     const serverlessDir = path.dirname(serverlessYmlPath);
     const content = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
-    const referencedFiles = findFileReferences(content, serverlessDir);
-    const substitutions: Record<string, VariableSubstitution> = {};
-    const filesModified: string[] = [];
+    const substitutions: VariableSubstitution[] = [];
+    const subFiles: string[] = [];
     let placeholderIndex = 0;
+
+    // --- Part 1: Create -sub copies of referenced files with all variables substituted ---
+    const referencedFiles = findFileReferences(content, serverlessDir);
+    const filePathMap = new Map<string, string>(); // original abs path → sub abs path
 
     for (const filePath of referencedFiles) {
         if (!fs.existsSync(filePath)) continue;
@@ -98,50 +162,77 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
         const refs = findVariableReferences(fileContent);
         if (refs.length === 0) continue;
 
-        // Back up the file before modifying
-        const backupPath = filePath + '.sls2cdk.bak';
-        if (!fs.existsSync(backupPath)) {
-            fs.copyFileSync(filePath, backupPath);
-        }
-
         // Replace from end to start to preserve string indices
         let modified = fileContent;
         for (let i = refs.length - 1; i >= 0; i--) {
             const ref = refs[i]!;
-            const existing = substitutions[ref.fullMatch];
-            const placeholder = existing
-                ? existing.placeholder
-                : `__SLS2CDK_VAR_${placeholderIndex++}__`;
-            if (!existing) {
-                substitutions[ref.fullMatch] = {
-                    original: ref.fullMatch,
-                    placeholder,
-                    filePath,
-                };
-            }
+            const placeholder = `__SLS2CDK_VAR_${placeholderIndex++}__`;
+            substitutions.push({
+                original: ref.fullMatch,
+                placeholder,
+                filePath,
+                variableType: classifyVariableType(ref.fullMatch),
+            });
             modified = modified.slice(0, ref.start) + placeholder + modified.slice(ref.end);
         }
 
-        fs.writeFileSync(filePath, modified);
-        filesModified.push(filePath);
+        const subPath = getSubPath(filePath);
+        fs.writeFileSync(subPath, modified);
+        subFiles.push(subPath);
+        filePathMap.set(filePath, subPath);
     }
+
+    // --- Part 2: Create serverless-sub.yml with rewritten file refs + substituted external vars ---
+    const serverlessRefs = findVariableReferences(content);
+    let modifiedContent = content;
+
+    // Process from end to start to preserve indices
+    for (let i = serverlessRefs.length - 1; i >= 0; i--) {
+        const ref = serverlessRefs[i]!;
+
+        // Check if this is a ${file(...)} reference that needs path rewriting
+        const rewritten = rewriteFileReference(ref.fullMatch, serverlessDir, filePathMap);
+        if (rewritten) {
+            modifiedContent =
+                modifiedContent.slice(0, ref.start) + rewritten + modifiedContent.slice(ref.end);
+            continue;
+        }
+
+        // Check if this is an external variable that should be substituted
+        if (shouldSubstitute(ref.fullMatch)) {
+            const placeholder = `__SLS2CDK_VAR_${placeholderIndex++}__`;
+            substitutions.push({
+                original: ref.fullMatch,
+                placeholder,
+                filePath: serverlessYmlPath,
+                variableType: classifyVariableType(ref.fullMatch),
+            });
+            modifiedContent =
+                modifiedContent.slice(0, ref.start) + placeholder + modifiedContent.slice(ref.end);
+        }
+
+        // Otherwise (self:, sls:, opt:, file() without sub, unknown patterns) — keep as-is
+    }
+
+    const serverlessSubPath = path.join(serverlessDir, 'serverless-sub.yml');
+    fs.writeFileSync(serverlessSubPath, modifiedContent);
+    subFiles.push(serverlessSubPath);
 
     return {
         substitutions,
-        count: Object.keys(substitutions).length,
-        filesModified,
+        count: substitutions.length,
+        subFiles,
+        serverlessSubPath,
     };
 }
 
 /**
- * Restores all referenced files that were modified during variable substitution.
+ * Removes all generated -sub files (serverless-sub.yml + referenced file copies).
  */
-export function restoreReferencedFiles(filePaths: string[]): void {
-    for (const filePath of filePaths) {
-        const backupPath = filePath + '.sls2cdk.bak';
-        if (fs.existsSync(backupPath)) {
-            fs.copyFileSync(backupPath, filePath);
-            fs.unlinkSync(backupPath);
+export function cleanupSubFiles(subFiles: string[]): void {
+    for (const filePath of subFiles) {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
         }
     }
 }

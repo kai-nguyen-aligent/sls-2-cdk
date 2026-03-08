@@ -7,9 +7,18 @@ export interface PackageResult {
     serverlessDir: string;
 }
 
-export function runServerlessPackage(servicePath: string, stage: string): PackageResult {
+export function runServerlessPackage(
+    servicePath: string,
+    stage: string,
+    configFile?: string
+): PackageResult {
+    let command = `npx serverless@3.39.0 package --stage ${stage}`;
+    if (configFile) {
+        command += ` --config ${configFile}`;
+    }
+
     try {
-        execSync(`npx serverless@3.39.0 package --stage ${stage}`, {
+        execSync(command, {
             cwd: servicePath,
             stdio: 'inherit',
             timeout: 300_000,

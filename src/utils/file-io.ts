@@ -6,12 +6,12 @@ export function writeStepOutput(filePath: string, data: unknown): void {
 }
 
 /**
- * Copies the substituted yml files (serverless.yml + referenced files) into the output
- * directory so there is a snapshot of exactly what `serverless print` runs against.
+ * Copies the generated -sub files (serverless-sub.yml + referenced -sub files) into the
+ * output directory so there is a snapshot of exactly what `serverless package` runs against.
  */
 export function copySubstitutedFiles(
     serverlessYmlPath: string,
-    modifiedFiles: string[],
+    subFiles: string[],
     outputDir: string
 ): string[] {
     const snapshotDir = path.join(outputDir, 'substituted-files');
@@ -20,7 +20,7 @@ export function copySubstitutedFiles(
     const servicePath = path.dirname(serverlessYmlPath);
     const copiedFiles: string[] = [];
 
-    for (const filePath of [serverlessYmlPath, ...modifiedFiles]) {
+    for (const filePath of subFiles) {
         const relPath = path.relative(servicePath, filePath);
         const destPath = path.join(snapshotDir, relPath);
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
