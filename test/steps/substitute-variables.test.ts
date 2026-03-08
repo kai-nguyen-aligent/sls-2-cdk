@@ -71,14 +71,16 @@ describe('substituteVariables', () => {
                 'db: ${ssm:/db}\nstage: ${self:provider.stage}\nbucket: ${s3:my-bucket/key}'
             );
 
-            const result = substituteVariables(ymlPath);
+            substituteVariables(ymlPath);
 
             const subContent = fs.readFileSync(path.join(tmpDir, 'config-sub.yml'), 'utf-8');
             // ALL variables in referenced files are substituted (including self:)
             expect(subContent).not.toContain('${ssm:');
             expect(subContent).not.toContain('${self:');
             expect(subContent).not.toContain('${s3:');
-            expect(subContent).toMatch(/^db: __SLS2CDK_VAR_\d+__\nstage: __SLS2CDK_VAR_\d+__\nbucket: __SLS2CDK_VAR_\d+__$/);
+            expect(subContent).toMatch(
+                /^db: __SLS2CDK_VAR_\d+__\nstage: __SLS2CDK_VAR_\d+__\nbucket: __SLS2CDK_VAR_\d+__$/
+            );
         });
     });
 
@@ -142,10 +144,7 @@ describe('substituteVariables', () => {
         });
 
         it('should not substitute CloudFormation !Sub references', () => {
-            fs.writeFileSync(
-                ymlPath,
-                'Resource: !Sub arn:aws:s3:::${S3BucketName}/*'
-            );
+            fs.writeFileSync(ymlPath, 'Resource: !Sub arn:aws:s3:::${S3BucketName}/*');
 
             const result = substituteVariables(ymlPath);
 
