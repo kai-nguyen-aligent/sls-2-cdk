@@ -5,7 +5,7 @@ import { parseDocument, visit } from 'yaml';
 
 import type {
     SubstituteVariablesResult,
-    VariableSubstitution,
+    VariableSubstitutions,
     VariableType,
 } from '../types/index.js';
 
@@ -92,7 +92,7 @@ function classifyVariableType(expression: string): VariableType {
     if (inner.startsWith('cf:') || inner.startsWith('cf.')) return 'cf';
     if (inner.startsWith('env:')) return 'env';
     if (inner.startsWith('aws:')) return 'aws';
-    return 'unknown';
+    return 'ignore';
 }
 
 /**
@@ -136,16 +136,14 @@ function rewriteFileReference(
 
 /**
  * Substitutes ${...} variable references within a single string value.
- * For serverless.yml scalars: only external variables are substituted,
- * ${file(...)} paths are rewritten, and local vars (self, sls, opt) are preserved.
+ * Only external variables are substituted, ${file(...)} paths are rewritten,
+ * and local vars (self, sls, opt) are preserved.
  */
 function substituteScalarValue(
     value: string,
     serverlessDir: string,
-    serverlessYmlPath: string,
     filePathMap: Map<string, string>,
-    substitutions: VariableSubstitution[],
-    placeholderIndex: { value: number }
+    substitutions: VariableSubstitutions
 ): string {
     const refs = findVariableReferences(value);
     if (refs.length === 0) return value;
@@ -165,13 +163,19 @@ function substituteScalarValue(
 
         // Check if this is an external variable that should be substituted
         if (shouldSubstitute(ref.fullMatch)) {
-            const placeholder = `__SLS2CDK_VAR_${placeholderIndex.value++}__`;
-            substitutions.push({
-                original: ref.fullMatch,
-                placeholder,
-                filePath: serverlessYmlPath,
-                variableType: classifyVariableType(ref.fullMatch),
-            });
+            let placeholder = `__SLS2CDK_VAR_${ref.fullMatch.toUpperCase()}__`;
+            const existing = substitutions[ref.fullMatch];
+            if (existing) {
+                substitutions[ref.fullMatch] = { ...existing, count: existing.count + 1 };
+                placeholder = existing.placeholder;
+            } else {
+                substitutions[ref.fullMatch] = {
+                    placeholder,
+                    count: 1,
+                    variableType: classifyVariableType(ref.fullMatch),
+                };
+            }
+
             modified = modified.slice(0, ref.start) + placeholder + modified.slice(ref.end);
         }
 
@@ -182,11 +186,54 @@ function substituteScalarValue(
 }
 
 /**
+ * Walks all scalar values in a YAML document, substituting external variables
+ * and rewriting ${file(...)} paths. Skips CloudFormation !Sub tagged values.
+ */
+function substituteDocumentVariables(
+    doc: ReturnType<typeof parseDocument>,
+    serverlessDir: string,
+    filePathMap: Map<string, string>,
+    substitutions: VariableSubstitutions
+): void {
+    visit(doc, {
+        Scalar(_key, node) {
+            if (typeof node.value !== 'string') return;
+            if (node.tag === '!Sub') return;
+
+            const original = node.value;
+            const modified = substituteScalarValue(
+                original,
+                serverlessDir,
+                filePathMap,
+                substitutions
+            );
+
+            if (modified !== original) {
+                node.value = modified;
+            }
+        },
+    });
+}
+
+/**
+ * Serializes a YAML document to string, preserving the original trailing newline behavior.
+ */
+function serializeDocument(doc: ReturnType<typeof parseDocument>, originalContent: string): string {
+    let output = doc.toString({ lineWidth: 0 });
+    if (!originalContent.endsWith('\n') && output.endsWith('\n')) {
+        output = output.slice(0, -1);
+    }
+    return output;
+}
+
+/**
  * Finds files referenced via ${file(...)} in serverless.yml and substitutes
- * all ${...} variable references across both referenced files and serverless.yml.
+ * external ${...} variable references across both referenced files and serverless.yml.
  *
- * - Referenced files: ALL ${...} variables are substituted (string-based, since
- *   referenced files may be JSON or other formats). New -sub copies are created.
+ * - Referenced files: Only YAML files (.yml, .yaml) are supported. Parsed as YAML
+ *   documents with only external variables (ssm, s3, cf, env, aws) substituted.
+ *   ${self:...}, ${sls:...}, ${opt:...} are left intact. CloudFormation !Sub tagged
+ *   values are skipped. New -sub copies are created. Non-YAML files are ignored.
  * - serverless.yml: Parsed as a YAML document. Only external variables (ssm, s3, cf,
  *   env, aws) are substituted. ${file(...)} paths are rewritten to point to -sub copies.
  *   ${self:...}, ${sls:...}, ${opt:...} are left intact. CloudFormation !Sub tagged
@@ -198,82 +245,41 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
     const serverlessDir = path.dirname(serverlessYmlPath);
     const content = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
-    const substitutions: VariableSubstitution[] = [];
+    const substitutions: VariableSubstitutions = {};
     const subFiles: string[] = [];
-    const placeholderIndex = { value: 0 };
 
-    // --- Part 1: Create -sub copies of referenced files with all variables substituted ---
-    // String-based approach since referenced files may be JSON or other formats.
+    // --- Part 1: Create -sub copies of referenced YAML files with external variables substituted ---
     const referencedFiles = findFileReferences(content, serverlessDir);
     const filePathMap = new Map<string, string>(); // original abs path → sub abs path
+    const yamlExtensions = new Set(['.yml', '.yaml']);
 
     for (const filePath of referencedFiles) {
         if (!fs.existsSync(filePath)) continue;
 
-        const fileContent = fs.readFileSync(filePath, 'utf-8');
-        const refs = findVariableReferences(fileContent);
-        if (refs.length === 0) continue;
+        // Only YAML files are supported for variable substitution
+        if (!yamlExtensions.has(path.extname(filePath).toLowerCase())) continue;
 
-        // Replace from end to start to preserve string indices
-        let modified = fileContent;
-        for (let i = refs.length - 1; i >= 0; i--) {
-            const ref = refs[i]!;
-            const placeholder = `__SLS2CDK_VAR_${placeholderIndex.value++}__`;
-            substitutions.push({
-                original: ref.fullMatch,
-                placeholder,
-                filePath,
-                variableType: classifyVariableType(ref.fullMatch),
-            });
-            modified = modified.slice(0, ref.start) + placeholder + modified.slice(ref.end);
-        }
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        const fileDoc = parseDocument(fileContent);
+        substituteDocumentVariables(fileDoc, serverlessDir, filePathMap, substitutions);
 
         const subPath = getSubPath(filePath);
-        fs.writeFileSync(subPath, modified);
+        fs.writeFileSync(subPath, serializeDocument(fileDoc, fileContent));
         subFiles.push(subPath);
         filePathMap.set(filePath, subPath);
     }
 
     // --- Part 2: Parse serverless.yml as YAML and substitute variables in scalar values ---
     const doc = parseDocument(content);
-
-    visit(doc, {
-        Scalar(_key, node) {
-            if (typeof node.value !== 'string') return;
-
-            // Skip CloudFormation !Sub references — their ${...} are CF substitutions
-            if (node.tag === '!Sub') return;
-
-            const original = node.value;
-            const modified = substituteScalarValue(
-                original,
-                serverlessDir,
-                serverlessYmlPath,
-                filePathMap,
-                substitutions,
-                placeholderIndex
-            );
-
-            if (modified !== original) {
-                node.value = modified;
-            }
-        },
-    });
+    substituteDocumentVariables(doc, serverlessDir, filePathMap, substitutions);
 
     const serverlessSubPath = path.join(serverlessDir, 'serverless-sub.yml');
-    let output = doc.toString({ lineWidth: 0 });
-
-    // Preserve original trailing newline behavior
-    if (!content.endsWith('\n') && output.endsWith('\n')) {
-        output = output.slice(0, -1);
-    }
-
-    fs.writeFileSync(serverlessSubPath, output);
+    fs.writeFileSync(serverlessSubPath, serializeDocument(doc, content));
     subFiles.push(serverlessSubPath);
 
     return {
         substitutions,
-        count: substitutions.length,
+        count: Object.keys(substitutions).length,
         subFiles,
         serverlessSubPath,
     };

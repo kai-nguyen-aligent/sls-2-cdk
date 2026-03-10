@@ -104,18 +104,16 @@ export default class Convert extends Command {
         this.log('---');
 
         for (const servicePath of projectPaths) {
-            const projectName = path.relative(rootDir, servicePath) || path.basename(servicePath);
-            const projectOutputDir = isMultiProject ? path.join(outputDir, projectName) : outputDir;
-
             if (isMultiProject) {
-                fs.mkdirSync(projectOutputDir, { recursive: true });
+                const projectName =
+                    path.relative(rootDir, servicePath) || path.basename(servicePath);
                 this.log(`\nProcessing project: ${projectName} (${servicePath})`);
                 this.log('---');
             } else {
                 this.log(`Converting Serverless project at: ${servicePath}`);
             }
 
-            await this.processProject(servicePath, projectOutputDir, stage, config);
+            await this.processProject(servicePath, stage, config, rootDir, outputDir);
         }
 
         this.log('\nAll projects processed.');
@@ -123,44 +121,52 @@ export default class Convert extends Command {
 
     private async processProject(
         servicePath: string,
-        outputDir: string,
         stage: string,
-        config: Sls2CdkConfig
+        config: Sls2CdkConfig,
+        rootDir: string,
+        baseOutputDir: string
     ): Promise<void> {
         const serverlessYmlPath = this.findServerlessYml(servicePath);
         if (!serverlessYmlPath) {
             this.error(`No serverless.yml or serverless.yaml found in ${servicePath}`, { exit: 1 });
         }
 
+        const relServicePath = path.relative(rootDir, servicePath);
+        const snapshotDir = relServicePath
+            ? path.join(baseOutputDir, relServicePath)
+            : baseOutputDir;
+        const stepOutputDir = path.join(snapshotDir, 'step-outputs');
+        fs.mkdirSync(stepOutputDir, { recursive: true });
+
         let subFiles: string[] = [];
         try {
             this.log('Step 1/5: Substituting variables...');
-            const varResult = this.runStep('01-substitute-variables', outputDir, () =>
+            const varResult = this.runStep('01-substitute-variables', stepOutputDir, () =>
                 substituteVariables(serverlessYmlPath)
             );
             subFiles = varResult.data.subFiles;
 
-            copySubstitutedFiles(serverlessYmlPath, subFiles, outputDir);
+            copySubstitutedFiles(serverlessYmlPath, subFiles, baseOutputDir, rootDir);
 
             this.log('Step 2/5: Running serverless package...');
-            const packageResult = this.runStep('02-package', outputDir, () =>
+            const packageResult = this.runStep('02-package', stepOutputDir, () =>
                 runServerlessPackage(servicePath, stage, 'serverless-sub.yml')
             );
 
             this.log('Step 3/5: Removing Serverless-specific resources...');
             const templatePath = packageResult.data.templatePath;
             const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
-            const removeResult = this.runStep('03-remove-resources', outputDir, () =>
+            const removeResult = this.runStep('03-remove-resources', stepOutputDir, () =>
                 removeResources(template, config)
             );
 
             this.log('Step 4/5: Building resource map...');
-            const resourceMapResult = this.runStep('04-resource-map', outputDir, () =>
+            const resourceMapResult = this.runStep('04-resource-map', stepOutputDir, () =>
                 buildResourceMap(removeResult.data.template)
             );
 
             this.log('Step 5/5: Building Lambda environment variable map...');
-            const envMapResult = this.runStep('05-env-map', outputDir, () =>
+            const envMapResult = this.runStep('05-env-map', stepOutputDir, () =>
                 buildEnvMap(removeResult.data.template)
             );
 
@@ -173,7 +179,7 @@ export default class Convert extends Command {
             this.log(`  Resources removed: ${removeResult.data.removed.length}`);
             this.log(`  Resources mapped:  ${resourceMapResult.data.totalCount}`);
             this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
-            this.log(`  Output files in:   ${outputDir}`);
+            this.log(`  Output files in:   ${snapshotDir}`);
         } finally {
             cleanupSubFiles(subFiles);
         }

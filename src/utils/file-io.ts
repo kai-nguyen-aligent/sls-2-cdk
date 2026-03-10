@@ -12,12 +12,13 @@ export function writeStepOutput(filePath: string, data: unknown): void {
 export function copySubstitutedFiles(
     serverlessYmlPath: string,
     subFiles: string[],
-    outputDir: string
+    outputDir: string,
+    rootDir: string
 ): string[] {
-    const snapshotDir = path.join(outputDir, 'substituted-files');
-    fs.mkdirSync(snapshotDir, { recursive: true });
-
     const servicePath = path.dirname(serverlessYmlPath);
+    const relServicePath = path.relative(rootDir, servicePath);
+    const snapshotDir = relServicePath ? path.join(outputDir, relServicePath) : outputDir;
+    fs.mkdirSync(snapshotDir, { recursive: true });
     const copiedFiles: string[] = [];
 
     for (const filePath of subFiles) {

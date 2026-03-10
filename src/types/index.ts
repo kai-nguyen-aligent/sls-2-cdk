@@ -22,22 +22,23 @@ export const DEFAULT_CONFIG: Sls2CdkConfig = {
 // ============================================================
 
 /** Known Serverless Framework variable types that get substituted */
-export type VariableType = 'ssm' | 's3' | 'cf' | 'env' | 'aws' | 'unknown';
+export type VariableType = 'ssm' | 's3' | 'cf' | 'env' | 'aws' | 'ignore';
 
-export interface VariableSubstitution {
-    /** The full original expression, e.g. "${ssm:/app/db-host}" */
-    original: string;
-    /** The placeholder that replaced it, e.g. "__SLS2CDK_VAR_0__" */
-    placeholder: string;
-    /** Absolute path of the file this substitution was found in */
-    filePath: string;
-    /** The detected variable type */
-    variableType: VariableType;
-}
+export type VariableSubstitutions = Record<
+    string,
+    {
+        /** The placeholder that replaced it, e.g. "__SLS2CDK_VAR_0__" */
+        placeholder: string;
+        /** The detected variable type */
+        variableType: VariableType;
+        /** Total count of substitutions */
+        count: number;
+    }
+>;
 
 export interface SubstituteVariablesResult {
     /** All substitutions made across all files */
-    substitutions: VariableSubstitution[];
+    substitutions: VariableSubstitutions;
     /** Total count of substitutions */
     count: number;
     /** All generated -sub files (for cleanup) */
