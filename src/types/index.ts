@@ -1,23 +1,4 @@
 // ============================================================
-// Configuration
-// ============================================================
-
-export interface Sls2CdkConfig {
-    /** CloudFormation logical IDs to remove (exact match) */
-    removeResourceIds: string[];
-    /**
-     * CloudFormation resource Type patterns to remove.
-     * Supports trailing wildcard: "Custom::*" matches "Custom::Anything"
-     */
-    removeResourceTypePatterns: string[];
-}
-
-export const DEFAULT_CONFIG: Sls2CdkConfig = {
-    removeResourceIds: ['ServerlessDeploymentBucket', 'ServerlessDeploymentBucketPolicy'],
-    removeResourceTypePatterns: ['Custom::*'],
-};
-
-// ============================================================
 // Variable Substitution Types
 // ============================================================
 
@@ -27,8 +8,10 @@ export type VariableType = 'ssm' | 's3' | 'cf' | 'env' | 'aws' | 'ignore';
 export type VariableSubstitutions = Record<
     string,
     {
-        /** The placeholder that replaced it, e.g. "__SLS2CDK_VAR_0__" */
+        /** The placeholder that replaced it, e.g. "__SLS2CDK_VAR_VALUE__" */
         placeholder: string;
+        /** The full matched variable */
+        fullMatch: string;
         /** The detected variable type */
         variableType: VariableType;
         /** Total count of substitutions */

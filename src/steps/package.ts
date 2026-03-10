@@ -7,15 +7,8 @@ export interface PackageResult {
     serverlessDir: string;
 }
 
-export function runServerlessPackage(
-    servicePath: string,
-    stage: string,
-    configFile?: string
-): PackageResult {
-    let command = `npx serverless@3.39.0 package --stage ${stage}`;
-    if (configFile) {
-        command += ` --config ${configFile}`;
-    }
+export function runServerlessPackage(servicePath: string, configFile: string): PackageResult {
+    const command = `npx serverless@3.39.0 package --stage dev --config ${configFile}`;
 
     try {
         execSync(command, {

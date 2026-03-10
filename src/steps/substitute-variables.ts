@@ -15,9 +15,6 @@ interface VarMatch {
     fullMatch: string;
 }
 
-/** Known Serverless Framework variable prefixes that require external resolution */
-const EXTERNAL_VARIABLE_PREFIXES = ['ssm', 's3:', 'cf:', 'env:', 'aws:'];
-
 /**
  * Finds all ${...} variable references in content, handling nested ${} by counting brace depth.
  */
@@ -73,26 +70,22 @@ function findFileReferences(content: string, baseDir: string): string[] {
     return [...filePaths];
 }
 
-/**
- * Determines if a variable reference is one that Serverless Framework would try
- * to resolve externally (SSM, S3, CloudFormation, env vars, AWS account info).
- */
-function shouldSubstitute(expression: string): boolean {
-    const inner = expression.slice(2, -1);
-    return EXTERNAL_VARIABLE_PREFIXES.some(prefix => inner.startsWith(prefix));
-}
+function classifyVariableType(expression: string): {
+    type: VariableType;
+    value: string;
+} {
+    const [type, value] = expression.slice(2, -1).split(':');
 
-/**
- * Determines the type of a Serverless Framework variable reference.
- */
-function classifyVariableType(expression: string): VariableType {
-    const inner = expression.slice(2, -1);
-    if (inner.startsWith('ssm')) return 'ssm';
-    if (inner.startsWith('s3:')) return 's3';
-    if (inner.startsWith('cf:') || inner.startsWith('cf.')) return 'cf';
-    if (inner.startsWith('env:')) return 'env';
-    if (inner.startsWith('aws:')) return 'aws';
-    return 'ignore';
+    switch (type) {
+        case 'aws':
+        case 'cf':
+        case 'env':
+        case 'ssm':
+        case 's3':
+            return { type, value: value || '' };
+        default:
+            return { type: 'ignore', value: '' };
+    }
 }
 
 /**
@@ -161,18 +154,19 @@ function substituteScalarValue(
             continue;
         }
 
-        // Check if this is an external variable that should be substituted
-        if (shouldSubstitute(ref.fullMatch)) {
-            let placeholder = `__SLS2CDK_VAR_${ref.fullMatch.toUpperCase()}__`;
+        const { type, value } = classifyVariableType(ref.fullMatch);
+        if (type !== 'ignore') {
+            const placeholder = `__SLS2CDK_${type.toUpperCase()}_${value.toUpperCase()}__`;
+
             const existing = substitutions[ref.fullMatch];
             if (existing) {
                 substitutions[ref.fullMatch] = { ...existing, count: existing.count + 1 };
-                placeholder = existing.placeholder;
             } else {
                 substitutions[ref.fullMatch] = {
                     placeholder,
+                    fullMatch: ref.fullMatch,
                     count: 1,
-                    variableType: classifyVariableType(ref.fullMatch),
+                    variableType: type,
                 };
             }
 

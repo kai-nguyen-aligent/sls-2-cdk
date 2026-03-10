@@ -1,15 +1,11 @@
-import { confirm, input } from '@inquirer/prompts';
+import { input } from '@inquirer/prompts';
 import { Command, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
-import { buildResourceMap } from '../steps/build-resource-map.js';
 import { runServerlessPackage } from '../steps/package.js';
-import { removeResources } from '../steps/remove-resources.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
-import type { Sls2CdkConfig } from '../types/index.js';
-import { loadConfig } from '../utils/config.js';
 import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
 
 export default class Convert extends Command {
@@ -18,16 +14,11 @@ export default class Convert extends Command {
 
     static override examples = [
         '<%= config.bin %> convert --intermediate ./intermediate',
-        '<%= config.bin %> convert --stage prod --config ./sls-2-cdk.config.json',
+        '<%= config.bin %> convert -i ./monorepo',
         '<%= config.bin %> convert -i ./monorepo -m ./out',
     ];
 
     static override flags = {
-        config: Flags.file({
-            char: 'c',
-            description: 'Path to config file specifying resources to remove',
-            exists: true,
-        }),
         input: Flags.directory({
             char: 'i',
             description:
@@ -39,12 +30,6 @@ export default class Convert extends Command {
             description:
                 'Directory for intermediate JSON files (default: .sls-2-cdk inside the input directory)',
             default: '.sls-2-cdk',
-        }),
-
-        stage: Flags.string({
-            char: 's',
-            description: 'Stage name for serverless package',
-            default: 'dev',
         }),
     };
 
@@ -67,25 +52,10 @@ export default class Convert extends Command {
             : flags.intermediate;
         const outputDir = path.resolve(rootDir, intermediate);
 
-        const stage = metadata.flags.stage?.setFromDefault
-            ? await input({
-                  message: 'Stage name for serverless package:',
-                  default: flags.stage,
-              })
-            : flags.stage;
+        // TODO: add flag for keeping resource name while migrating
 
-        let configPath = flags.config;
-        if (!configPath) {
-            const wantsConfig = await confirm({
-                message: 'Do you want to provide a config file for resource removal?',
-                default: false,
-            });
-            if (wantsConfig) {
-                configPath = await input({ message: 'Path to config file:' });
-            }
-        }
-
-        const config = loadConfig(configPath);
+        // TODO: Ask user to bootstrapping new workspace using @aligent/nx-cdk
+        // Confirm that the folder exist by generating new test service with dry run
 
         // Discover all serverless.yml/yaml files under the root directory
         const projectPaths = this.discoverProjects(rootDir);
@@ -93,18 +63,15 @@ export default class Convert extends Command {
             this.error(`No serverless.yml or serverless.yaml found under ${rootDir}`, { exit: 1 });
         }
 
-        const isMultiProject = projectPaths.length > 1;
-
         fs.mkdirSync(outputDir, { recursive: true });
 
         this.log(`Root directory: ${rootDir}`);
         this.log(`Intermediate directory: ${outputDir}`);
-        this.log(`Stage: ${stage}`);
         this.log(`Projects found: ${projectPaths.length}`);
         this.log('---');
 
         for (const servicePath of projectPaths) {
-            if (isMultiProject) {
+            if (projectPaths.length > 1) {
                 const projectName =
                     path.relative(rootDir, servicePath) || path.basename(servicePath);
                 this.log(`\nProcessing project: ${projectName} (${servicePath})`);
@@ -113,7 +80,7 @@ export default class Convert extends Command {
                 this.log(`Converting Serverless project at: ${servicePath}`);
             }
 
-            await this.processProject(servicePath, stage, config, rootDir, outputDir);
+            await this.processProject(servicePath, rootDir, outputDir);
         }
 
         this.log('\nAll projects processed.');
@@ -121,8 +88,6 @@ export default class Convert extends Command {
 
     private async processProject(
         servicePath: string,
-        stage: string,
-        config: Sls2CdkConfig,
         rootDir: string,
         baseOutputDir: string
     ): Promise<void> {
@@ -140,7 +105,7 @@ export default class Convert extends Command {
 
         let subFiles: string[] = [];
         try {
-            this.log('Step 1/5: Substituting variables...');
+            this.log('Step 1/3: Substituting variables...');
             const varResult = this.runStep('01-substitute-variables', stepOutputDir, () =>
                 substituteVariables(serverlessYmlPath)
             );
@@ -148,27 +113,28 @@ export default class Convert extends Command {
 
             copySubstitutedFiles(serverlessYmlPath, subFiles, baseOutputDir, rootDir);
 
-            this.log('Step 2/5: Running serverless package...');
+            this.log('Step 2/3: Running serverless package...');
             const packageResult = this.runStep('02-package', stepOutputDir, () =>
-                runServerlessPackage(servicePath, stage, 'serverless-sub.yml')
+                runServerlessPackage(servicePath, 'serverless-sub.yml')
             );
 
-            this.log('Step 3/5: Removing Serverless-specific resources...');
             const templatePath = packageResult.data.templatePath;
             const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
-            const removeResult = this.runStep('03-remove-resources', stepOutputDir, () =>
-                removeResources(template, config)
+
+            // TODO: Collect templare to stepOutputDir with name: cloudformation-template
+
+            this.log('Step 3/3: Building Lambda environment variable map...');
+            const envMapResult = this.runStep('03-env-map', stepOutputDir, () =>
+                buildEnvMap(template)
             );
 
-            this.log('Step 4/5: Building resource map...');
-            const resourceMapResult = this.runStep('04-resource-map', stepOutputDir, () =>
-                buildResourceMap(removeResult.data.template)
-            );
+            // TODO: Generate new service for this migration
 
-            this.log('Step 5/5: Building Lambda environment variable map...');
-            const envMapResult = this.runStep('05-env-map', stepOutputDir, () =>
-                buildEnvMap(removeResult.data.template)
-            );
+            // TODO: Copy folders & files to the destination. Provide options to skip this step
+            // If it's folders, confirmation of the destination
+            // If it's files (next to serverless.yml) -> place it in project root
+
+            //
 
             // Summary
             this.log('---');
@@ -176,8 +142,6 @@ export default class Convert extends Command {
             this.log(
                 `  Var substitutions: ${varResult.data.count} (across ${subFiles.length} files)`
             );
-            this.log(`  Resources removed: ${removeResult.data.removed.length}`);
-            this.log(`  Resources mapped:  ${resourceMapResult.data.totalCount}`);
             this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
             this.log(`  Output files in:   ${snapshotDir}`);
         } finally {
