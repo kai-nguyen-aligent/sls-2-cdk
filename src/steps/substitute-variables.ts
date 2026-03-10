@@ -145,32 +145,27 @@ function substituteScalarValue(
 
     // Process from end to start to preserve string indices
     for (let i = refs.length - 1; i >= 0; i--) {
-        const ref = refs[i]!;
+        const { fullMatch, start, end } = refs[i]!;
 
         // Check if this is a ${file(...)} reference that needs path rewriting
-        const rewritten = rewriteFileReference(ref.fullMatch, serverlessDir, filePathMap);
+        const rewritten = rewriteFileReference(fullMatch, serverlessDir, filePathMap);
         if (rewritten) {
-            modified = modified.slice(0, ref.start) + rewritten + modified.slice(ref.end);
+            modified = modified.slice(0, start) + rewritten + modified.slice(end);
             continue;
         }
 
-        const { type, value } = classifyVariableType(ref.fullMatch);
+        const { type, value } = classifyVariableType(fullMatch);
         if (type !== 'ignore') {
             const placeholder = `__SLS2CDK_${type.toUpperCase()}_${value.toUpperCase()}__`;
 
-            const existing = substitutions[ref.fullMatch];
+            const existing = substitutions[fullMatch];
             if (existing) {
-                substitutions[ref.fullMatch] = { ...existing, count: existing.count + 1 };
+                substitutions[fullMatch] = { ...existing, count: existing.count + 1 };
             } else {
-                substitutions[ref.fullMatch] = {
-                    placeholder,
-                    fullMatch: ref.fullMatch,
-                    count: 1,
-                    variableType: type,
-                };
+                substitutions[fullMatch] = { placeholder, fullMatch, count: 1, variableType: type };
             }
 
-            modified = modified.slice(0, ref.start) + placeholder + modified.slice(ref.end);
+            modified = modified.slice(0, start) + placeholder + modified.slice(end);
         }
 
         // Otherwise (self:, sls:, opt:, file() without sub, unknown patterns) — keep as-is
