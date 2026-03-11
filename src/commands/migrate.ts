@@ -7,6 +7,7 @@ import { buildEnvMap } from '../steps/build-env-map.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
+import { validateCdkWorkspace } from '../utils/workspace.js';
 
 export default class Migrate extends Command {
     static override description =
@@ -37,9 +38,21 @@ export default class Migrate extends Command {
                 'Keep original resource names (e.g. S3 bucket names, DynamoDB table names) during migration',
             default: false,
         }),
+        destination: Flags.directory({
+            char: 'd',
+            description: 'Destination CDK workspace directory (bootstrapped with @aligent/nx-cdk)',
+        }),
     };
 
     async run(): Promise<void> {
+        this.log('');
+        this.log('=== sls-2-cdk: Serverless Framework to CDK Migration ===');
+        this.log('');
+        this.log('Prerequisites:');
+        this.log('  The destination workspace must be created with @aligent/nx-cdk:preset');
+        this.log('  If you have not set one up yet, run: npx @aligent/create-workspace');
+        this.log('');
+
         const { flags, metadata } = await this.parse(Migrate);
 
         const inputDir = metadata.flags.input?.setFromDefault
@@ -56,7 +69,7 @@ export default class Migrate extends Command {
                   default: flags.intermediate,
               })
             : flags.intermediate;
-        const outputDir = path.resolve(rootDir, intermediate);
+        const intermediateDir = path.resolve(rootDir, intermediate);
 
         const keepNames = metadata.flags['keep-names']?.setFromDefault
             ? await confirm({
@@ -64,21 +77,32 @@ export default class Migrate extends Command {
                   default: flags['keep-names'],
               })
             : flags['keep-names'];
-        void keepNames; // Will be consumed by downstream migration steps
+        void keepNames; // FIXME: Will be consumed by downstream migration steps
 
-        // TODO: Ask user to bootstrapping new workspace using @aligent/nx-cdk
-        // Confirm that the folder exist by generating new test service with dry run
+        const destinationDir = flags.destination
+            ? path.resolve(flags.destination)
+            : path.resolve(
+                  await input({
+                      message:
+                          'Destination CDK workspace directory (bootstrapped with @aligent/nx-cdk):',
+                  })
+              );
 
-        // Discover all serverless.yml/yaml files under the root directory
+        const error = validateCdkWorkspace(destinationDir);
+        if (error) {
+            this.error(String(error), { exit: 1 });
+        }
+
         const projectPaths = this.discoverProjects(rootDir);
         if (projectPaths.length === 0) {
             this.error(`No serverless.yml or serverless.yaml found under ${rootDir}`, { exit: 1 });
         }
 
-        fs.mkdirSync(outputDir, { recursive: true });
+        fs.mkdirSync(intermediateDir, { recursive: true });
 
         this.log(`Root directory: ${rootDir}`);
-        this.log(`Intermediate directory: ${outputDir}`);
+        this.log(`Intermediate directory: ${intermediateDir}`);
+        this.log(`Destination directory: ${destinationDir}`);
         this.log(`Projects found: ${projectPaths.length}`);
         this.log('---');
 
@@ -92,7 +116,7 @@ export default class Migrate extends Command {
                 this.log(`Converting Serverless project at: ${servicePath}`);
             }
 
-            await this.processProject(servicePath, rootDir, outputDir);
+            await this.processProject(servicePath, rootDir, intermediateDir);
         }
 
         this.log('\nAll projects processed.');
@@ -129,10 +153,10 @@ export default class Migrate extends Command {
             const packageResult = this.runStep('02-package', stepOutputDir, () =>
                 runServerlessPackage(servicePath, 'serverless-sub.yml')
             );
+            const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
+            fs.copyFileSync(packageResult.data.templatePath, templateDest);
 
-            const template = JSON.parse(fs.readFileSync(packageResult.data.templatePath, 'utf-8'));
-
-            // TODO: Collect template to stepOutputDir with name: cloudformation-template.json
+            const template = JSON.parse(fs.readFileSync(templateDest, 'utf-8'));
 
             this.log('Step 3/3: Building Lambda environment variable map...');
             const envMapResult = this.runStep('03-env-map', stepOutputDir, () =>
