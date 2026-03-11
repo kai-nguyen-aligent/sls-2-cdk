@@ -1,4 +1,4 @@
-import { input } from '@inquirer/prompts';
+import { confirm, input } from '@inquirer/prompts';
 import { Command, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -8,14 +8,14 @@ import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
 
-export default class Convert extends Command {
+export default class Migrate extends Command {
     static override description =
-        'Convert Serverless Framework project(s) into CDK-ready artifacts by extracting and transforming the CloudFormation template.';
+        'Migrate Serverless Framework project(s) into CDK-ready artifacts by extracting and transforming the CloudFormation template.';
 
     static override examples = [
-        '<%= config.bin %> convert --intermediate ./intermediate',
-        '<%= config.bin %> convert -i ./monorepo',
-        '<%= config.bin %> convert -i ./monorepo -m ./out',
+        '<%= config.bin %> migrate --intermediate ./intermediate',
+        '<%= config.bin %> migrate -i ./monorepo',
+        '<%= config.bin %> migrate -i ./monorepo -m ./out',
     ];
 
     static override flags = {
@@ -31,10 +31,16 @@ export default class Convert extends Command {
                 'Directory for intermediate JSON files (default: .sls-2-cdk inside the input directory)',
             default: '.sls-2-cdk',
         }),
+        'keep-names': Flags.boolean({
+            char: 'k',
+            description:
+                'Keep original resource names (e.g. S3 bucket names, DynamoDB table names) during migration',
+            default: false,
+        }),
     };
 
     async run(): Promise<void> {
-        const { flags, metadata } = await this.parse(Convert);
+        const { flags, metadata } = await this.parse(Migrate);
 
         const inputDir = metadata.flags.input?.setFromDefault
             ? await input({
@@ -52,7 +58,13 @@ export default class Convert extends Command {
             : flags.intermediate;
         const outputDir = path.resolve(rootDir, intermediate);
 
-        // TODO: add flag for keeping resource name while migrating
+        const keepNames = metadata.flags['keep-names']?.setFromDefault
+            ? await confirm({
+                  message: 'Keep original resource names during migration?',
+                  default: flags['keep-names'],
+              })
+            : flags['keep-names'];
+        void keepNames; // Will be consumed by downstream migration steps
 
         // TODO: Ask user to bootstrapping new workspace using @aligent/nx-cdk
         // Confirm that the folder exist by generating new test service with dry run
@@ -118,10 +130,9 @@ export default class Convert extends Command {
                 runServerlessPackage(servicePath, 'serverless-sub.yml')
             );
 
-            const templatePath = packageResult.data.templatePath;
-            const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
+            const template = JSON.parse(fs.readFileSync(packageResult.data.templatePath, 'utf-8'));
 
-            // TODO: Collect templare to stepOutputDir with name: cloudformation-template
+            // TODO: Collect template to stepOutputDir with name: cloudformation-template.json
 
             this.log('Step 3/3: Building Lambda environment variable map...');
             const envMapResult = this.runStep('03-env-map', stepOutputDir, () =>
@@ -134,11 +145,11 @@ export default class Convert extends Command {
             // If it's folders, confirmation of the destination
             // If it's files (next to serverless.yml) -> place it in project root
 
-            //
+            // TODO: map from resources to CDK construct & use ts-morph to write to destination file.
 
             // Summary
             this.log('---');
-            this.log('Conversion complete!');
+            this.log('Migration complete!');
             this.log(
                 `  Var substitutions: ${varResult.data.count} (across ${subFiles.length} files)`
             );
