@@ -8,7 +8,7 @@ import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
-import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
+import { cleanupSubFiles, writeStepOutput } from '../utils/file-io.js';
 import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 
 export default class Migrate extends Command {
@@ -142,15 +142,13 @@ export default class Migrate extends Command {
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
         fs.mkdirSync(stepOutputDir, { recursive: true });
 
-        let subFiles: string[] = [];
+        const subFiles: string[] = [];
         try {
             this.log('Step 1: Substituting variables...');
             const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
-                substituteVariables(serverlessYmlPath)
+                substituteVariables(serverlessYmlPath, intermediateDir, rootDir)
             );
-            subFiles = varResult.data.subFiles;
-
-            copySubstitutedFiles(serverlessYmlPath, subFiles, intermediateDir, rootDir);
+            subFiles.push(...varResult.data.subFiles);
 
             this.log('Step 2: Running serverless package...');
             const packageResult = await this.runStep('02-package', stepOutputDir, () =>

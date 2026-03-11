@@ -8,6 +8,7 @@ import type {
     VariableSubstitutions,
     VariableType,
 } from '../types/index.js';
+import { copySubstitutedFiles } from '../utils/file-io.js';
 
 interface VarMatch {
     start: number;
@@ -230,7 +231,11 @@ function serializeDocument(doc: ReturnType<typeof parseDocument>, originalConten
  *
  * No original files are modified.
  */
-export function substituteVariables(serverlessYmlPath: string): SubstituteVariablesResult {
+export function substituteVariables(
+    serverlessYmlPath: string,
+    intermediateDir: string,
+    rootDir: string
+): SubstituteVariablesResult {
     const serverlessDir = path.dirname(serverlessYmlPath);
     const content = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
@@ -265,6 +270,8 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
     const serverlessSubPath = path.join(serverlessDir, 'serverless-sub.yml');
     fs.writeFileSync(serverlessSubPath, serializeDocument(doc, content));
     subFiles.push(serverlessSubPath);
+
+    copySubstitutedFiles(serverlessYmlPath, subFiles, intermediateDir, rootDir);
 
     return {
         substitutions,
