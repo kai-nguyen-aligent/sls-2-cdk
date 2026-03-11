@@ -4,10 +4,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
+import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { cleanupSubFiles, copySubstitutedFiles, writeStepOutput } from '../utils/file-io.js';
-import { validateCdkWorkspace } from '../utils/workspace.js';
+import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 
 export default class Migrate extends Command {
     static override description =
@@ -116,7 +117,7 @@ export default class Migrate extends Command {
                 this.log(`Converting Serverless project at: ${servicePath}`);
             }
 
-            await this.processProject(servicePath, rootDir, intermediateDir);
+            await this.processProject(servicePath, rootDir, intermediateDir, destinationDir);
         }
 
         this.log('\nAll projects processed.');
@@ -125,7 +126,8 @@ export default class Migrate extends Command {
     private async processProject(
         servicePath: string,
         rootDir: string,
-        baseOutputDir: string
+        intermediateDir: string,
+        destinationDir: string
     ): Promise<void> {
         const serverlessYmlPath = this.findServerlessYml(servicePath);
         if (!serverlessYmlPath) {
@@ -134,23 +136,23 @@ export default class Migrate extends Command {
 
         const relServicePath = path.relative(rootDir, servicePath);
         const snapshotDir = relServicePath
-            ? path.join(baseOutputDir, relServicePath)
-            : baseOutputDir;
+            ? path.join(intermediateDir, relServicePath)
+            : intermediateDir;
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
         fs.mkdirSync(stepOutputDir, { recursive: true });
 
         let subFiles: string[] = [];
         try {
-            this.log('Step 1/3: Substituting variables...');
-            const varResult = this.runStep('01-substitute-variables', stepOutputDir, () =>
+            this.log('Step 1: Substituting variables...');
+            const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
                 substituteVariables(serverlessYmlPath)
             );
             subFiles = varResult.data.subFiles;
 
-            copySubstitutedFiles(serverlessYmlPath, subFiles, baseOutputDir, rootDir);
+            copySubstitutedFiles(serverlessYmlPath, subFiles, intermediateDir, rootDir);
 
-            this.log('Step 2/3: Running serverless package...');
-            const packageResult = this.runStep('02-package', stepOutputDir, () =>
+            this.log('Step 2: Running serverless package...');
+            const packageResult = await this.runStep('02-package', stepOutputDir, () =>
                 runServerlessPackage(servicePath, 'serverless-sub.yml')
             );
             const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
@@ -158,18 +160,22 @@ export default class Migrate extends Command {
 
             const template = JSON.parse(fs.readFileSync(templateDest, 'utf-8'));
 
-            this.log('Step 3/3: Building Lambda environment variable map...');
-            const envMapResult = this.runStep('03-env-map', stepOutputDir, () =>
+            this.log('Step 3: Building Lambda environment variable map...');
+            const envMapResult = await this.runStep('03-env-map', stepOutputDir, () =>
                 buildEnvMap(template)
             );
 
-            // TODO: Generate new service for this migration
+            this.log('Step 4: Generating CDK service...');
+            const genResult = await this.runStep('04-generate-service', stepOutputDir, () =>
+                generateCdkService(destinationDir, path.basename(servicePath))
+            );
 
-            // TODO: Copy folders & files to the destination. Provide options to skip this step
-            // If it's folders, confirmation of the destination
-            // If it's files (next to serverless.yml) -> place it in project root
+            this.log('Step 5: Migrating runtime code...');
+            await this.runStep('05-migrate-runtime-code', stepOutputDir, () =>
+                migrateRuntimeCode(servicePath, genResult.data)
+            );
 
-            // TODO: map from resources to CDK construct & use ts-morph to write to destination file.
+            // TODO: Using template, based on a map of CFN resource type, generate CDK construct & use ts-morph to write to destination file.
 
             // Summary
             this.log('---');
@@ -178,20 +184,21 @@ export default class Migrate extends Command {
                 `  Var substitutions: ${varResult.data.count} (across ${subFiles.length} files)`
             );
             this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
-            this.log(`  Output files in:   ${snapshotDir}`);
+            this.log(`  Intermediate output files in:   ${intermediateDir}`);
+            // TODO: next step after migration
         } finally {
             cleanupSubFiles(subFiles);
         }
     }
 
-    private runStep<T>(
+    private async runStep<T>(
         stepName: string,
         outputDir: string,
-        fn: () => T
-    ): { data: T; durationMs: number } {
+        fn: () => T | Promise<T>
+    ): Promise<{ data: T; durationMs: number }> {
         const start = Date.now();
         try {
-            const data = fn();
+            const data = await fn();
             const durationMs = Date.now() - start;
             const outputFile = path.join(outputDir, `${stepName}.json`);
             writeStepOutput(outputFile, { stepName, success: true, data, durationMs });

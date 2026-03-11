@@ -116,6 +116,25 @@ export interface LambdaEnvMap {
 }
 
 // ============================================================
+// Runtime Code Migration Types
+// ============================================================
+
+export interface RuntimeItem {
+    /** Name of the file or folder */
+    name: string;
+    /** Whether this is a folder or a file */
+    type: 'folder' | 'file';
+}
+
+export interface MigrateRuntimeCodeResult {
+    items: RuntimeItem[];
+    /** Folders that were copied */
+    copiedFolders: string[];
+    /** Files that were copied */
+    copiedFiles: string[];
+}
+
+// ============================================================
 // Pipeline / Orchestration Types
 // ============================================================
 
