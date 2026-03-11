@@ -135,6 +135,45 @@ export interface MigrateRuntimeCodeResult {
 }
 
 // ============================================================
+// CDK Construct Generation Types
+// ============================================================
+
+export interface CdkMapping {
+    /** CDK module path, e.g. 'aws-cdk-lib/aws-lambda' */
+    cdkModule: string;
+    /** CDK import alias, e.g. 'lambda' */
+    importAlias: string;
+    /** CDK construct class name, e.g. 'NodejsFunction' */
+    className: string;
+}
+
+export interface GeneratedResource {
+    logicalId: string;
+    cfnType: string;
+    cdkModule: string;
+    cdkClass: string;
+}
+
+export interface SkippedResource {
+    logicalId: string;
+    cfnType: string;
+    reason: string;
+}
+
+export interface GenerateConstructsResult {
+    /** Absolute path to the generated construct file */
+    outputPath: string;
+    /** Resources that were successfully mapped to CDK constructs */
+    generated: GeneratedResource[];
+    /** Resources that were skipped (unsupported type) */
+    skipped: SkippedResource[];
+    /** Count of generated constructs */
+    generatedCount: number;
+    /** Count of skipped resources */
+    skippedCount: number;
+}
+
+// ============================================================
 // Pipeline / Orchestration Types
 // ============================================================
 

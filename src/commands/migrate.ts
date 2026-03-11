@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
+import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
@@ -165,17 +166,25 @@ export default class Migrate extends Command {
                 buildEnvMap(template)
             );
 
+            // TODO: Update shared stack for SSM values.
+            // Need a note on secrets should be converted to SecretManager
+
             this.log('Step 4: Generating CDK service...');
             const genResult = await this.runStep('04-generate-service', stepOutputDir, () =>
                 generateCdkService(destinationDir, path.basename(servicePath))
             );
 
-            this.log('Step 5: Migrating runtime code...');
-            await this.runStep('05-migrate-runtime-code', stepOutputDir, () =>
-                migrateRuntimeCode(servicePath, genResult.data)
+            this.log('Step 5: Generating CDK constructs...');
+            const constructResult = await this.runStep(
+                '05-generate-constructs',
+                stepOutputDir,
+                () => generateConstructs(template, genResult.data)
             );
 
-            // TODO: Using template, based on a map of CFN resource type, generate CDK construct & use ts-morph to write to destination file.
+            this.log('Step 6: Migrating runtime code...');
+            await this.runStep('06-migrate-runtime-code', stepOutputDir, () =>
+                migrateRuntimeCode(servicePath, genResult.data)
+            );
 
             // Summary
             this.log('---');
@@ -184,6 +193,9 @@ export default class Migrate extends Command {
                 `  Var substitutions: ${varResult.data.count} (across ${subFiles.length} files)`
             );
             this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
+            this.log(
+                `  CDK constructs:    ${constructResult.data.generatedCount} generated, ${constructResult.data.skippedCount} skipped`
+            );
             this.log(`  Intermediate output files in:   ${intermediateDir}`);
             // TODO: next step after migration
         } finally {
