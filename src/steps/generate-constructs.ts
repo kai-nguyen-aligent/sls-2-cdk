@@ -114,20 +114,6 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Alarm',
     },
 
-    // CloudFront
-    'AWS::CloudFront::Distribution': {
-        cdkModule: 'aws-cdk-lib/aws-cloudfront',
-        importAlias: 'cloudfront',
-        className: 'Distribution',
-    },
-
-    // Cognito
-    'AWS::Cognito::UserPool': {
-        cdkModule: 'aws-cdk-lib/aws-cognito',
-        importAlias: 'cognito',
-        className: 'UserPool',
-    },
-
     // SSM
     'AWS::SSM::Parameter': {
         cdkModule: 'aws-cdk-lib/aws-ssm',

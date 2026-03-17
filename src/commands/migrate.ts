@@ -13,19 +13,19 @@ import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js'
 
 export default class Migrate extends Command {
     static override description =
-        'Migrate Serverless Framework project(s) into CDK-ready artifacts by extracting and transforming the CloudFormation template.';
+        'Migrate a Serverless Framework project into CDK-ready artifacts by extracting and transforming the CloudFormation template.';
 
     static override examples = [
-        '<%= config.bin %> migrate --intermediate ./intermediate',
-        '<%= config.bin %> migrate -i ./monorepo',
-        '<%= config.bin %> migrate -i ./monorepo -m ./out',
+        '<%= config.bin %> migrate',
+        '<%= config.bin %> migrate -i ./my-service',
+        '<%= config.bin %> migrate -i ./my-service -m ./intermediate',
     ];
 
     static override flags = {
         input: Flags.directory({
             char: 'i',
             description:
-                'Root directory to scan for Serverless Framework projects (finds all serverless.yml files recursively)',
+                'Directory containing the Serverless Framework project (must have exactly one serverless.yml or serverless.yaml)',
             default: '.',
         }),
         intermediate: Flags.directory({
@@ -59,7 +59,7 @@ export default class Migrate extends Command {
 
         const inputDir = metadata.flags.input?.setFromDefault
             ? await input({
-                  message: 'Root directory to scan for Serverless Framework projects:',
+                  message: 'Directory containing the Serverless Framework project:',
                   default: flags.input,
               })
             : flags.input;
@@ -97,15 +97,14 @@ export default class Migrate extends Command {
 
         const projectPaths = this.discoverProjects(rootDir);
         if (projectPaths.length === 0) {
-            this.error(`No serverless.yml or serverless.yaml found under ${rootDir}`, { exit: 1 });
+            this.error(`No serverless.yml or serverless.yaml found in ${rootDir}`, { exit: 1 });
         }
 
         fs.mkdirSync(intermediateDir, { recursive: true });
 
-        this.log(`Root directory: ${rootDir}`);
+        this.log(`Input directory: ${rootDir}`);
         this.log(`Intermediate directory: ${intermediateDir}`);
         this.log(`Destination directory: ${destinationDir}`);
-        this.log(`Projects found: ${projectPaths.length}`);
         this.log('---');
 
         for (const servicePath of projectPaths) {
@@ -230,7 +229,13 @@ export default class Migrate extends Command {
     }
 
     private discoverProjects(rootDir: string): string[] {
-        const matches = fs.globSync('**/serverless.{yml,yaml}', { cwd: rootDir });
+        const matches = fs.globSync('serverless.{yml,yaml}', { cwd: rootDir });
+        if (matches.length !== 1) {
+            this.error(
+                `Multiple serverless config files found in ${rootDir}: ${matches.join(', ')}`,
+                { exit: 1 }
+            );
+        }
         return matches.map(match => path.resolve(rootDir, path.dirname(match)));
     }
 
