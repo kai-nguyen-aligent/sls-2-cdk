@@ -95,32 +95,19 @@ export default class Migrate extends Command {
             this.error(String(error), { exit: 1 });
         }
 
-        const projectPaths = this.discoverProjects(rootDir);
-        if (projectPaths.length === 0) {
-            this.error(`No serverless.yml or serverless.yaml found in ${rootDir}`, { exit: 1 });
-        }
-
-        fs.mkdirSync(intermediateDir, { recursive: true });
-
         this.log(`Input directory: ${rootDir}`);
         this.log(`Intermediate directory: ${intermediateDir}`);
         this.log(`Destination directory: ${destinationDir}`);
         this.log('---');
 
-        for (const servicePath of projectPaths) {
-            if (projectPaths.length > 1) {
-                const projectName =
-                    path.relative(rootDir, servicePath) || path.basename(servicePath);
-                this.log(`\nProcessing project: ${projectName} (${servicePath})`);
-                this.log('---');
-            } else {
-                this.log(`Converting Serverless project at: ${servicePath}`);
-            }
+        const projectPath = this.discoverProject(rootDir);
+        this.log(`Migration Serverless project at: ${projectPath}`);
 
-            await this.processProject(servicePath, rootDir, intermediateDir, destinationDir);
-        }
+        fs.mkdirSync(intermediateDir, { recursive: true });
 
-        this.log('\nAll projects processed.');
+        await this.processProject(projectPath, rootDir, intermediateDir, destinationDir);
+
+        this.log('\nServerless project migrated.');
     }
 
     private async processProject(
@@ -228,7 +215,7 @@ export default class Migrate extends Command {
         }
     }
 
-    private discoverProjects(rootDir: string): string[] {
+    private discoverProject(rootDir: string): string {
         const matches = fs.globSync('serverless.{yml,yaml}', { cwd: rootDir });
         if (matches.length !== 1) {
             this.error(
@@ -236,7 +223,8 @@ export default class Migrate extends Command {
                 { exit: 1 }
             );
         }
-        return matches.map(match => path.resolve(rootDir, path.dirname(match)));
+
+        return path.resolve(rootDir, path.dirname(matches[0]!));
     }
 
     private findServerlessYml(dir: string): string | null {
