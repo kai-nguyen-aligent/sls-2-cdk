@@ -3,6 +3,7 @@ import * as path from 'node:path';
 
 import { parseDocument, visit } from 'yaml';
 
+import { createHash } from 'node:crypto';
 import type {
     SubstituteVariablesResult,
     VariableSubstitutions,
@@ -155,9 +156,10 @@ function substituteScalarValue(
             continue;
         }
 
-        const { type, value } = classifyVariableType(fullMatch);
+        const { type } = classifyVariableType(fullMatch);
         if (type !== 'ignore') {
-            const placeholder = `__SLS2CDK_${type.toUpperCase()}_${value.toUpperCase()}__`;
+            const hash = createHash('sha1').update(fullMatch);
+            const placeholder = `__SLS2CDK_${type.toUpperCase()}_${hash.digest('hex')}__`;
 
             const existing = substitutions[fullMatch];
             if (existing) {
