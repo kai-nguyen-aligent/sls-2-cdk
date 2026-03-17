@@ -6,16 +6,22 @@ import type { MigrateRuntimeCodeResult, RuntimeItem } from '../types/index.js';
 
 const IGNORE_DIRS = new Set(['node_modules', '.serverless', '.build', 'dist']);
 
-const IGNORE_FILES = new Set([
-    'serverless.yml',
-    'serverless.yaml',
-    'serverless-sub.yml',
+const IGNORE_FILES = [
+    'serverless*.{yml,yaml}',
     'package.json',
-    'package-lock.json',
-    'pnpm-lock.yaml',
-    'yarn.lock',
-    'tsconfig.json',
-]);
+    '*lock*',
+    'tsconfig*.json',
+    '*.config.{js,mjs,ts,mts}',
+];
+
+function isIgnoredFile(name: string): boolean {
+    return IGNORE_FILES.some(pattern => path.matchesGlob(name, pattern));
+}
+
+interface FolderCopyOperation {
+    src: string;
+    dest: string;
+}
 
 /**
  * Discovers runtime items (folders and files) next to serverless.yml
@@ -30,7 +36,7 @@ function discoverRuntimeItems(servicePath: string): RuntimeItem[] {
 
         if (entry.isDirectory() && !IGNORE_DIRS.has(entry.name)) {
             items.push({ name: entry.name, type: 'folder' });
-        } else if (entry.isFile() && !IGNORE_FILES.has(entry.name)) {
+        } else if (entry.isFile() && !isIgnoredFile(entry.name)) {
             items.push({ name: entry.name, type: 'file' });
         }
     }
@@ -39,22 +45,65 @@ function discoverRuntimeItems(servicePath: string): RuntimeItem[] {
 }
 
 /**
+ * Recursively prompts the user to copy an entire folder or decide per subfolder.
+ * Returns a flat list of copy operations to perform.
+ */
+async function promptFolderCopy(
+    srcPath: string,
+    folderLabel: string,
+    destPath: string
+): Promise<FolderCopyOperation[]> {
+    const destFolder = await input({
+        message: `Destination for folder "${folderLabel}" (relative to ${destPath}):`,
+        default: folderLabel,
+    });
+    const dest = path.join(destPath, destFolder);
+
+    const subFolders = fs
+        .readdirSync(srcPath, { withFileTypes: true })
+        .filter(e => e.isDirectory() && !IGNORE_DIRS.has(e.name) && !e.name.startsWith('.'));
+
+    if (subFolders.length === 0) {
+        return [{ src: srcPath, dest: path.resolve(dest) }];
+    }
+
+    const copyWhole = await confirm({
+        message: `Copy entire folder "${folderLabel}"? (No = decide per subfolder)`,
+        default: true,
+    });
+
+    if (copyWhole) {
+        return [{ src: srcPath, dest: path.resolve(dest) }];
+    }
+
+    const operations: FolderCopyOperation[] = [];
+    for (const subFolder of subFolders) {
+        const subOps = await promptFolderCopy(
+            path.join(srcPath, subFolder.name),
+            `${folderLabel}/${subFolder.name}`,
+            path.join(dest, subFolder.name)
+        );
+        operations.push(...subOps);
+    }
+    return operations;
+}
+
+/**
  * Copies runtime code from the Serverless project to the CDK destination.
  *
- * - Folders are copied to their confirmed destinations (map of folder name -> resolved path).
+ * - Folders are copied according to the resolved FolderCopyOperation list.
  * - Files (next to serverless.yml) are copied to `fileDestination` (typically the workspace root).
  */
 function copyRuntimeCode(
+    folderOperations: FolderCopyOperation[],
     servicePath: string,
-    folderDestinations: Record<string, string>,
     files: string[],
     fileDestination: string
 ): Omit<MigrateRuntimeCodeResult, 'items'> {
     const copiedFolders: string[] = [];
     const copiedFiles: string[] = [];
 
-    for (const [folderName, dest] of Object.entries(folderDestinations)) {
-        const src = path.join(servicePath, folderName);
+    for (const { src, dest } of folderOperations) {
         fs.cpSync(src, dest, { recursive: true });
         copiedFolders.push(dest);
     }
@@ -95,17 +144,33 @@ export async function migrateRuntimeCode(
     const folders = items.filter(i => i.type === 'folder').map(f => f.name);
     const files = items.filter(i => i.type === 'file').map(f => f.name);
 
-    const folderDestinations: Record<string, string> = {};
+    const folderOperations: FolderCopyOperation[] = [];
     for (const folder of folders) {
-        const defaultDest = path.join(generatedServicePath, folder);
-        const dest = await input({
-            message: `Destination for folder "${folder}":`,
-            default: defaultDest,
-        });
-        folderDestinations[folder] = path.resolve(dest);
+        const ops = await promptFolderCopy(
+            path.join(servicePath, folder),
+            folder,
+            generatedServicePath
+        );
+        folderOperations.push(...ops);
     }
 
-    const result = copyRuntimeCode(servicePath, folderDestinations, files, generatedServicePath);
+    const confirmedFiles: string[] = [];
+    for (const fileName of files) {
+        const shouldCopy = await confirm({
+            message: `Copy file "${fileName}" to the CDK service?`,
+            default: true,
+        });
+        if (shouldCopy) {
+            confirmedFiles.push(fileName);
+        }
+    }
+
+    const result = copyRuntimeCode(
+        folderOperations,
+        servicePath,
+        confirmedFiles,
+        generatedServicePath
+    );
 
     return { ...result, items };
 }

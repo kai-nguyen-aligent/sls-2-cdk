@@ -23,7 +23,8 @@
   },
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
-    "dev": "pnpm run build && pnpm run prepack && ./bin/dev.js",
+    "dev": "pnpm run build && pnpm run prepack && ./bin/dev.js ",
+    "dev:e2e": "pnpm run dev migrate -i='../existing-sls/services/customers' -m='.sls-2-cdk' -d='../out-cdk'",
     "prepare": "pnpm run build",
     "prepack": "oclif manifest && oclif readme",
     "postpack": "rm -f oclif.manifest.json",

@@ -128,63 +128,61 @@ export default class Migrate extends Command {
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
         fs.mkdirSync(stepOutputDir, { recursive: true });
 
-        const subFiles: string[] = [];
-        try {
-            this.log('Step 1: Substituting variables...');
-            const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
-                substituteVariables(serverlessYmlPath, intermediateDir, rootDir)
-            );
-            subFiles.push(...varResult.data.subFiles);
+        this.log('Step 1: Substituting variables...');
+        const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
+            substituteVariables(serverlessYmlPath, intermediateDir, rootDir)
+        );
 
-            this.log('Step 2: Running serverless package...');
-            const packageResult = await this.runStep('02-package', stepOutputDir, () =>
-                runServerlessPackage(servicePath, 'serverless-sub.yml')
-            );
-            const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
-            fs.copyFileSync(packageResult.data.templatePath, templateDest);
+        this.log('Step 2: Running serverless package...');
+        const packageResult = await this.runStep('02-package', stepOutputDir, () =>
+            runServerlessPackage(servicePath, 'serverless-sub.yml')
+        );
+        const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
+        fs.copyFileSync(packageResult.data.templatePath, templateDest);
 
-            const template = JSON.parse(fs.readFileSync(templateDest, 'utf-8'));
+        const template = JSON.parse(fs.readFileSync(templateDest, 'utf-8'));
 
-            this.log('Step 3: Building Lambda environment variable map...');
-            const envMapResult = await this.runStep('03-env-map', stepOutputDir, () =>
-                buildEnvMap(template)
-            );
+        this.log('Step 3: Building Lambda environment variable map...');
+        const envMapResult = await this.runStep('03-env-map', stepOutputDir, () =>
+            buildEnvMap(template)
+        );
 
-            // TODO: Update shared stack for SSM values.
-            // Need a note on secrets should be converted to SecretManager
+        // We're done with these sub files. Results are in `steps-outputs` already
+        cleanupSubFiles(varResult.data.subFiles);
 
-            this.log('Step 4: Generating CDK service...');
-            const genResult = await this.runStep('04-generate-service', stepOutputDir, () =>
-                generateCdkService(destinationDir, path.basename(servicePath))
-            );
+        // TODO: Update shared stack for SSM values.
+        // Read {destination}/libs/infra/src/index.ts using ts-morph
+        // Make the existing code examples
+        // Add a new comment: Remove example code & add your SSM & Secrets here
+        // Need a note on secrets should be converted to SecretManager
 
-            this.log('Step 5: Generating CDK constructs...');
-            const constructResult = await this.runStep(
-                '05-generate-constructs',
-                stepOutputDir,
-                () => generateConstructs(template, genResult.data)
-            );
+        this.log('Step 4: Generating CDK service...');
+        const genResult = await this.runStep('04-generate-service', stepOutputDir, () =>
+            generateCdkService(destinationDir, path.basename(servicePath))
+        );
 
-            this.log('Step 6: Migrating runtime code...');
-            await this.runStep('06-migrate-runtime-code', stepOutputDir, () =>
-                migrateRuntimeCode(servicePath, genResult.data)
-            );
+        this.log('Step 5: Generating CDK constructs...');
+        const constructResult = await this.runStep('05-generate-constructs', stepOutputDir, () =>
+            generateConstructs(template, genResult.data)
+        );
 
-            // Summary
-            this.log('---');
-            this.log('Migration complete!');
-            this.log(
-                `  Var substitutions: ${varResult.data.count} (across ${subFiles.length} files)`
-            );
-            this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
-            this.log(
-                `  CDK constructs:    ${constructResult.data.generatedCount} generated, ${constructResult.data.skippedCount} skipped`
-            );
-            this.log(`  Intermediate output files in:   ${intermediateDir}`);
-            // TODO: next step after migration
-        } finally {
-            cleanupSubFiles(subFiles);
-        }
+        this.log('Step 6: Migrating runtime code...');
+        await this.runStep('06-migrate-runtime-code', stepOutputDir, () =>
+            migrateRuntimeCode(servicePath, genResult.data)
+        );
+
+        // Summary
+        this.log('---');
+        this.log('Migration complete!');
+        this.log(
+            `  Var substitutions: ${varResult.data.count} (across ${varResult.data.subFiles.length} files)`
+        );
+        this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
+        this.log(
+            `  CDK constructs:    ${constructResult.data.generatedCount} generated, ${constructResult.data.skippedCount} skipped`
+        );
+        this.log(`  Intermediate output files in:   ${intermediateDir}`);
+        // TODO: next step after migration
     }
 
     private async runStep<T>(
