@@ -145,6 +145,24 @@ export interface CdkMapping {
     importAlias: string;
     /** CDK construct class name, e.g. 'NodejsFunction' */
     className: string;
+    /**
+     * CloudFormation property key that holds the resource's explicit name, per resource type.
+     * Omitted when `keepNames` is false so CDK can auto-generate names.
+     */
+    cfnNameProp: string;
+    /**
+     * CloudFormation properties that are irrelevant to their CDK L2 counterpart and should
+     * be dropped during construct generation (e.g. `Code` / `Handler` on Lambda, which
+     * NodejsFunction derives from the entry-point path instead).
+     */
+    omitProps: Set<string>;
+}
+
+export interface CdkIdMapping {
+    /** CloudFormation logical ID of the resource (e.g. `MyTestLambdaFunction`). */
+    cfnLogicalId: string;
+    /** CDK construct id, e.g. 'MyTest' */
+    cdkId: string;
 }
 
 export interface GeneratedResource {

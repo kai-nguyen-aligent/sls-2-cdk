@@ -79,7 +79,6 @@ export default class Migrate extends Command {
                   default: flags['keep-names'],
               })
             : flags['keep-names'];
-        void keepNames; // FIXME: Will be consumed by downstream migration steps
 
         const destinationDir = flags.destination
             ? path.resolve(flags.destination)
@@ -105,7 +104,7 @@ export default class Migrate extends Command {
 
         fs.mkdirSync(intermediateDir, { recursive: true });
 
-        await this.processProject(projectPath, rootDir, intermediateDir, destinationDir);
+        await this.processProject(projectPath, rootDir, intermediateDir, destinationDir, keepNames);
 
         this.log('\nServerless project migrated.');
     }
@@ -114,7 +113,8 @@ export default class Migrate extends Command {
         servicePath: string,
         rootDir: string,
         intermediateDir: string,
-        destinationDir: string
+        destinationDir: string,
+        keepNames: boolean
     ): Promise<void> {
         const serverlessYmlPath = this.findServerlessYml(servicePath);
         if (!serverlessYmlPath) {
@@ -134,7 +134,7 @@ export default class Migrate extends Command {
         );
 
         this.log('Step 2: Running serverless package...');
-        const packageResult = await this.runStep('02-package', stepOutputDir, () =>
+        const packageResult = await this.runStep('02-serverless-package', stepOutputDir, () =>
             runServerlessPackage(servicePath, 'serverless-sub.yml')
         );
         const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
@@ -157,14 +157,14 @@ export default class Migrate extends Command {
         // Add a new comment: Remove example code & add your SSM & Secrets here
         // Need a note on secrets should be converted to SecretManager
 
-        this.log('Step 4: Generating CDK service...');
-        const genResult = await this.runStep('04-generate-service', stepOutputDir, () =>
+        this.log('Step 4: Generating destination CDK service...');
+        const genResult = await this.runStep('04-generate-dest-service', stepOutputDir, () =>
             generateCdkService(destinationDir, path.basename(servicePath))
         );
 
         this.log('Step 5: Generating CDK constructs...');
         const constructResult = await this.runStep('05-generate-constructs', stepOutputDir, () =>
-            generateConstructs(template, genResult.data)
+            generateConstructs(template, keepNames, genResult.data)
         );
 
         this.log('Step 6: Migrating runtime code...');
