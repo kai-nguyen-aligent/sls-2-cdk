@@ -151,6 +151,7 @@ export default class Migrate extends Command {
         cleanupSubFiles(varResult.data.subFiles);
 
         // TODO: Update shared stack for SSM values.
+        // Collect all SSM values from 01-substitute-variables
         // Read {destination}/libs/infra/src/index.ts using ts-morph
         // Make the existing code examples
         // Add a new comment: Remove example code & add your SSM & Secrets here

@@ -141,6 +141,17 @@ const PSEUDO_PARAMS: Record<string, string> = {
     'AWS::URLSuffix': 'cdk.Aws.URL_SUFFIX',
 };
 
+/**
+ * Logical IDs of CloudFormation resources to skip during construct generation.
+ * These are Serverless Framework infrastructure resources that should not be
+ * migrated to CDK constructs.
+ */
+const IGNORE_LOGICAL_IDS = new Set<string>([
+    'ServerlessDeploymentBucket',
+    'ServerlessDeploymentBucketPolicy',
+    'IamRoleLambdaExecution',
+]);
+
 const INTRINSIC_FUNCTIONS = new Set([
     'Ref',
     'Fn::Sub',
@@ -348,6 +359,8 @@ export function generateConstructs(
     template: CloudFormationTemplate,
     destinationServicePath: string
 ): GenerateConstructsResult {
+    const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
+
     const generated: GeneratedResource[] = [];
     const skipped: SkippedResource[] = [];
 
@@ -355,6 +368,15 @@ export function generateConstructs(
     const moduleAliases = new Map<string, string>();
 
     for (const [logicalId, resource] of Object.entries(template.Resources)) {
+        if (IGNORE_LOGICAL_IDS.has(logicalId)) {
+            skipped.push({
+                logicalId,
+                cfnType: resource.Type,
+                reason: `Ignored by logical ID`,
+            });
+            continue;
+        }
+
         const mapping = CFN_TO_CDK[resource.Type];
         if (!mapping) {
             skipped.push({
@@ -393,7 +415,6 @@ export function generateConstructs(
     }
 
     const content = buildFileContent(entries, moduleAliases);
-    const outputPath = path.join(destinationServicePath, 'migrated-resources.ts');
 
     const project = new Project();
     project.createSourceFile(outputPath, content, { overwrite: true });
