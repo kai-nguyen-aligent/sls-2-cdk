@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanupSubFiles, substituteVariables } from '../../src/steps/substitute-variables.js';
+import { substituteVariables } from '../../src/steps/substitute-variables.js';
 
 describe('substituteVariables', () => {
     let tmpDir: string;
@@ -27,7 +27,7 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            const subPath = path.join(tmpDir, 'env-sub.json');
+            const subPath = path.join(tmpDir, 'env-vars-subsitution.json');
             expect(fs.existsSync(subPath)).toBe(true);
             const subContent = fs.readFileSync(subPath, 'utf-8');
             expect(subContent).toMatch(/__SLS2CDK_VAR_\d+__/);
@@ -52,7 +52,7 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            expect(fs.existsSync(path.join(tmpDir, 'env-sub.json'))).toBe(false);
+            expect(fs.existsSync(path.join(tmpDir, 'env-vars-subsitution.json'))).toBe(false);
             expect(result.substitutions).toHaveLength(0);
         });
 
@@ -73,7 +73,10 @@ describe('substituteVariables', () => {
 
             substituteVariables(ymlPath);
 
-            const subContent = fs.readFileSync(path.join(tmpDir, 'config-sub.yml'), 'utf-8');
+            const subContent = fs.readFileSync(
+                path.join(tmpDir, 'config-vars-subsitution.yml'),
+                'utf-8'
+            );
             // ALL variables in referenced files are substituted (including self:)
             expect(subContent).not.toContain('${ssm:');
             expect(subContent).not.toContain('${self:');
@@ -84,7 +87,7 @@ describe('substituteVariables', () => {
         });
     });
 
-    describe('serverless.yml → serverless-sub.yml', () => {
+    describe('serverless.yml → serverless-vars-subsitution.yml', () => {
         it('should not modify the original serverless.yml', () => {
             const original = 'DB_HOST: ${ssm:/myapp/db-host}';
             fs.writeFileSync(ymlPath, original);
@@ -94,7 +97,7 @@ describe('substituteVariables', () => {
             expect(fs.readFileSync(ymlPath, 'utf-8')).toBe(original);
         });
 
-        it('should create serverless-sub.yml with external variables substituted', () => {
+        it('should create serverless-vars-subsitution.yml with external variables substituted', () => {
             fs.writeFileSync(ymlPath, 'DB_HOST: ${ssm:/myapp/db-host}');
 
             const result = substituteVariables(ymlPath);
@@ -160,7 +163,7 @@ describe('substituteVariables', () => {
             const result = substituteVariables(ymlPath);
 
             const subContent = fs.readFileSync(result.serverlessSubPath, 'utf-8');
-            expect(subContent).toContain('${file(env-sub.json)}');
+            expect(subContent).toContain('${file(env-vars-subsitution.json)}');
             expect(subContent).not.toContain('${file(./env.json)}');
         });
 
@@ -243,8 +246,8 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            expect(result.subFiles).toContain(path.join(tmpDir, 'env-sub.json'));
-            expect(result.subFiles).toContain(path.join(tmpDir, 'serverless-sub.yml'));
+            expect(result.subFiles).toContain(path.join(tmpDir, 'env-vars-subsitution.json'));
+            expect(result.subFiles).toContain(path.join(tmpDir, 'serverless-vars-subsitution.yml'));
         });
 
         it('should delete all -sub files on cleanup', () => {
@@ -279,13 +282,15 @@ describe('substituteVariables', () => {
             expect(result.substitutions).toHaveLength(0);
         });
 
-        it('should always create serverless-sub.yml even with no substitutions', () => {
+        it('should always create serverless-vars-subsitution.yml even with no substitutions', () => {
             fs.writeFileSync(ymlPath, 'service: my-service');
 
             const result = substituteVariables(ymlPath);
 
             expect(fs.existsSync(result.serverlessSubPath)).toBe(true);
-            expect(result.serverlessSubPath).toBe(path.join(tmpDir, 'serverless-sub.yml'));
+            expect(result.serverlessSubPath).toBe(
+                path.join(tmpDir, 'serverless-vars-subsitution.yml')
+            );
         });
     });
 });

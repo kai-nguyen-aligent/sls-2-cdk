@@ -131,12 +131,12 @@ export default class Migrate extends Command {
 
         this.log('Step 1: Substituting variables...');
         const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
-            substituteVariables(serverlessYmlPath, intermediateDir, rootDir)
+            substituteVariables(serverlessYmlPath)
         );
 
         this.log('Step 2: Running serverless package...');
         const packageResult = await this.runStep('02-serverless-package', stepOutputDir, () =>
-            runServerlessPackage(servicePath, 'serverless-sub.yml')
+            runServerlessPackage(servicePath, 'serverless-var-subsitution.yml')
         );
         const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
         fs.copyFileSync(packageResult.data.templatePath, templateDest);
@@ -147,9 +147,6 @@ export default class Migrate extends Command {
         const envMapResult = await this.runStep('03-env-map', stepOutputDir, () =>
             buildEnvMap(template)
         );
-
-        // We're done with these sub files. Results are in `steps-outputs` already
-        cleanupSubFiles(varResult.data.subFiles);
 
         // TODO: Update shared stack for SSM values.
         // Collect all SSM values from 01-substitute-variables
@@ -172,6 +169,9 @@ export default class Migrate extends Command {
         await this.runStep('06-migrate-runtime-code', stepOutputDir, () =>
             migrateRuntimeCode(servicePath, genResult.data)
         );
+
+        // TODO: As user if they want to remove sub files
+        cleanupSubFiles(varResult.data.subFiles);
 
         // Summary
         this.log('---');

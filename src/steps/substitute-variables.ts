@@ -9,7 +9,6 @@ import type {
     VariableSubstitutions,
     VariableType,
 } from '../types/index.js';
-import { copySubstitutedFiles } from '../utils/file-io.js';
 
 interface VarMatch {
     start: number;
@@ -92,12 +91,12 @@ function classifyVariableType(expression: string): {
 
 /**
  * Generates the -sub file path by inserting '-sub' before the file extension.
- * e.g., ./env.json → ./env-sub.json, ./config.yml → ./config-sub.yml
+ * e.g., ./env.json → ./env-vars-subsitution.json, ./config.yml → ./config-vars-subsitution.yml
  */
 function getSubPath(filePath: string): string {
     const ext = path.extname(filePath);
     const base = filePath.slice(0, -ext.length || undefined);
-    return `${base}-sub${ext}`;
+    return `${base}-vars-subsitution${ext}`;
 }
 
 /**
@@ -229,15 +228,11 @@ function serializeDocument(doc: ReturnType<typeof parseDocument>, originalConten
  * - serverless.yml: Parsed as a YAML document. Only external variables (ssm, s3, cf,
  *   env, aws) are substituted. ${file(...)} paths are rewritten to point to -sub copies.
  *   ${self:...}, ${sls:...}, ${opt:...} are left intact. CloudFormation !Sub tagged
- *   values are skipped entirely. Result is written to serverless-sub.yml.
+ *   values are skipped entirely. Result is written to serverless-vars-subsitution.yml.
  *
  * No original files are modified.
  */
-export function substituteVariables(
-    serverlessYmlPath: string,
-    intermediateDir: string,
-    rootDir: string
-): SubstituteVariablesResult {
+export function substituteVariables(serverlessYmlPath: string): SubstituteVariablesResult {
     const serverlessDir = path.dirname(serverlessYmlPath);
     const content = fs.readFileSync(serverlessYmlPath, 'utf-8');
 
@@ -269,11 +264,9 @@ export function substituteVariables(
     const doc = parseDocument(content);
     substituteDocumentVariables(doc, serverlessDir, filePathMap, substitutions);
 
-    const serverlessSubPath = path.join(serverlessDir, 'serverless-sub.yml');
+    const serverlessSubPath = path.join(serverlessDir, 'serverless-vars-subsitution.yml');
     fs.writeFileSync(serverlessSubPath, serializeDocument(doc, content));
     subFiles.push(serverlessSubPath);
-
-    copySubstitutedFiles(serverlessYmlPath, subFiles, intermediateDir, rootDir);
 
     return {
         substitutions,

@@ -12,6 +12,7 @@ const IGNORE_FILES = [
     '*lock*',
     'tsconfig*.json',
     '*.config.{js,mjs,ts,mts}',
+    '*-vars-subsitution.{yml,yaml}',
 ];
 
 function isIgnoredFile(name: string): boolean {
@@ -81,7 +82,7 @@ async function promptFolderCopy(
         const subOps = await promptFolderCopy(
             path.join(srcPath, subFolder.name),
             `${folderLabel}/${subFolder.name}`,
-            path.join(dest, subFolder.name)
+            destPath
         );
         operations.push(...subOps);
     }
