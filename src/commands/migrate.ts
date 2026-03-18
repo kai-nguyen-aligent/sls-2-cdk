@@ -126,6 +126,7 @@ export default class Migrate extends Command {
             ? path.join(intermediateDir, relServicePath)
             : intermediateDir;
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
+        // TODO: remove stepOutputDir if exist, create if not, move to util/file-io.ts
         fs.mkdirSync(stepOutputDir, { recursive: true });
 
         this.log('Step 1: Substituting variables...');

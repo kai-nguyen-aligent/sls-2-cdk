@@ -77,29 +77,29 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
     },
 
     // IAM
-    'AWS::IAM::Role': {
-        cdkModule: 'aws-cdk-lib/aws-iam',
-        importAlias: 'iam',
-        className: 'Role',
-        cfnNameProp: 'RoleName',
-        omitProps: new Set(),
-    },
-    'AWS::IAM::Policy': {
-        cdkModule: 'aws-cdk-lib/aws-iam',
-        importAlias: 'iam',
-        className: 'Policy',
-        cfnNameProp: 'PolicyName',
-        omitProps: new Set(),
-    },
+    // 'AWS::IAM::Role': {
+    //     cdkModule: 'aws-cdk-lib/aws-iam',
+    //     importAlias: 'iam',
+    //     className: 'Role',
+    //     cfnNameProp: 'RoleName',
+    //     omitProps: new Set(),
+    // },
+    // 'AWS::IAM::Policy': {
+    //     cdkModule: 'aws-cdk-lib/aws-iam',
+    //     importAlias: 'iam',
+    //     className: 'Policy',
+    //     cfnNameProp: 'PolicyName',
+    //     omitProps: new Set(),
+    // },
 
     // Logs
-    'AWS::Logs::LogGroup': {
-        cdkModule: 'aws-cdk-lib/aws-logs',
-        importAlias: 'logs',
-        className: 'LogGroup',
-        cfnNameProp: 'LogGroupName',
-        omitProps: new Set(),
-    },
+    // 'AWS::Logs::LogGroup': {
+    //     cdkModule: 'aws-cdk-lib/aws-logs',
+    //     importAlias: 'logs',
+    //     className: 'LogGroup',
+    //     cfnNameProp: 'LogGroupName',
+    //     omitProps: new Set(),
+    // },
 
     // Step Functions
     'AWS::StepFunctions::StateMachine': {
@@ -107,7 +107,8 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'sfn',
         className: 'StateMachine',
         cfnNameProp: 'StateMachineName',
-        omitProps: new Set(),
+        // TODO: We do not want this here because we use the yaml file + lambda substitution
+        omitProps: new Set(['DefinitionString']),
     },
 
     // SQS
@@ -143,6 +144,7 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         omitProps: new Set(),
     },
+    // TODO: className: 'Schedule'
 
     // API Gateway
     'AWS::ApiGateway::RestApi': {
@@ -152,6 +154,7 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         omitProps: new Set(),
     },
+    // TODO: ApiKey, UsagePlan
 
     // CloudWatch
     'AWS::CloudWatch::Alarm': {
