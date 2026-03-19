@@ -192,6 +192,30 @@ export interface GenerateConstructsResult {
 }
 
 // ============================================================
+// Shared Stack Update Types
+// ============================================================
+
+export interface SsmParameter {
+    /** The original Serverless variable expression, e.g. `${ssm:/my/param}` */
+    expression: string;
+    /** The extracted SSM path, e.g. `/my/param` */
+    ssmPath: string;
+    /** camelCase identifier derived from the path, e.g. `myParam` */
+    varName: string;
+    /** PascalCase CDK construct ID, e.g. `MyParam` */
+    cdkId: string;
+}
+
+export interface UpdateSharedStackResult {
+    /** Absolute path to the updated shared stack file */
+    outputPath: string;
+    /** SSM parameters extracted from the Serverless substitutions */
+    ssmParameters: SsmParameter[];
+    /** Count of SSM parameters added */
+    ssmCount: number;
+}
+
+// ============================================================
 // Pipeline / Orchestration Types
 // ============================================================
 

@@ -8,6 +8,7 @@ import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
+import { updateSharedStack } from '../steps/update-shared-stack.js';
 import { cleanupSubFiles, writeStepOutput } from '../utils/file-io.js';
 import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 
@@ -148,25 +149,27 @@ export default class Migrate extends Command {
             buildEnvMap(template)
         );
 
-        // TODO: Update shared stack for SSM values.
-        // Collect all SSM values from 01-substitute-variables
-        // Read {destination}/libs/infra/src/index.ts using ts-morph
-        // Make the existing code examples
-        // Add a new comment: Remove example code & add your SSM & Secrets here
-        // Need a note on secrets should be converted to SecretManager
+        this.log('Step 4: Updating shared stack with SSM parameters...');
+        //
+        await this.runStep('04-update-shared-stack', stepOutputDir, () =>
+            updateSharedStack(
+                varResult.data.substitutions,
+                path.join(destinationDir, 'libs', 'infra', 'src', 'index.ts')
+            )
+        );
 
-        this.log('Step 4: Generating destination CDK service...');
-        const genResult = await this.runStep('04-generate-dest-service', stepOutputDir, () =>
+        this.log('Step 5: Generating destination CDK service...');
+        const genResult = await this.runStep('05-generate-dest-service', stepOutputDir, () =>
             generateCdkService(destinationDir, path.basename(servicePath))
         );
 
-        this.log('Step 5: Generating CDK constructs...');
-        const constructResult = await this.runStep('05-generate-constructs', stepOutputDir, () =>
+        this.log('Step 6: Generating CDK constructs...');
+        const constructResult = await this.runStep('06-generate-constructs', stepOutputDir, () =>
             generateConstructs(template, keepNames, genResult.data)
         );
 
-        this.log('Step 6: Migrating runtime code...');
-        await this.runStep('06-migrate-runtime-code', stepOutputDir, () =>
+        this.log('Step 7: Migrating runtime code...');
+        await this.runStep('07-migrate-runtime-code', stepOutputDir, () =>
             migrateRuntimeCode(servicePath, genResult.data)
         );
 
