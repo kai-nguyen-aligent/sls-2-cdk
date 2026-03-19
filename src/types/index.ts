@@ -156,6 +156,13 @@ export interface CdkMapping {
      * NodejsFunction derives from the entry-point path instead).
      */
     omitProps: Set<string>;
+    /**
+     * Per-property transformation functions applied before serialisation.
+     * Keys are CloudFormation property names (PascalCase). Return a `RawTs`
+     * instance to emit a verbatim TypeScript expression (e.g. `Duration.seconds(90)`).
+     * Only applied when the property is present; non-numeric values should be passed through.
+     */
+    propTransforms?: Map<string, (value: unknown) => unknown>;
 }
 
 export interface CdkIdMapping {

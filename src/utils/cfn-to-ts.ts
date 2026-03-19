@@ -1,15 +1,20 @@
 const INDENT = '    ';
 
+/** Wraps a TypeScript expression that should be emitted verbatim without quoting. */
+export class RawTs {
+    constructor(public readonly code: string) {}
+}
+
 /** CloudFormation pseudo-parameters mapped to CDK constants */
 const PSEUDO_PARAMS: Record<string, string> = {
-    'AWS::AccountId': 'cdk.Aws.ACCOUNT_ID',
-    'AWS::NotificationARNs': 'cdk.Aws.NOTIFICATION_ARNS',
-    'AWS::NoValue': 'cdk.Aws.NO_VALUE',
-    'AWS::Partition': 'cdk.Aws.PARTITION',
-    'AWS::Region': 'cdk.Aws.REGION',
-    'AWS::StackId': 'cdk.Aws.STACK_ID',
-    'AWS::StackName': 'cdk.Aws.STACK_NAME',
-    'AWS::URLSuffix': 'cdk.Aws.URL_SUFFIX',
+    'AWS::AccountId': 'Aws.ACCOUNT_ID',
+    'AWS::NotificationARNs': 'Aws.NOTIFICATION_ARNS',
+    'AWS::NoValue': 'Aws.NO_VALUE',
+    'AWS::Partition': 'Aws.PARTITION',
+    'AWS::Region': 'Aws.REGION',
+    'AWS::StackId': 'Aws.STACK_ID',
+    'AWS::StackName': 'Aws.STACK_NAME',
+    'AWS::URLSuffix': 'Aws.URL_SUFFIX',
 };
 
 const INTRINSIC_FUNCTIONS = new Set([
@@ -72,46 +77,46 @@ function intrinsicToTs(fn: string, arg: unknown, depth: number): string {
         case 'Ref': {
             const pseudo = PSEUDO_PARAMS[arg as string];
             if (pseudo) return pseudo;
-            return `cdk.Fn.ref('${escapeString(String(arg))}')`;
+            return `Fn.ref('${escapeString(String(arg))}')`;
         }
         case 'Fn::GetAtt': {
             const [resource, attribute] = arg as [string, string];
-            return `cdk.Fn.getAtt('${escapeString(resource)}', '${escapeString(attribute)}')`;
+            return `Fn.getAtt('${escapeString(resource)}', '${escapeString(attribute)}')`;
         }
         case 'Fn::Sub': {
             if (typeof arg === 'string') {
-                return `cdk.Fn.sub('${escapeString(arg)}')`;
+                return `Fn.sub('${escapeString(arg)}')`;
             }
             if (Array.isArray(arg)) {
                 const [template, vars] = arg as [string, Record<string, unknown>];
-                return `cdk.Fn.sub('${escapeString(template)}', ${valueToTs(vars, depth)})`;
+                return `Fn.sub('${escapeString(template)}', ${valueToTs(vars, depth)})`;
             }
-            return `cdk.Fn.sub(${valueToTs(arg, depth)})`;
+            return `Fn.sub(${valueToTs(arg, depth)})`;
         }
         case 'Fn::ImportValue':
-            return `cdk.Fn.importValue('${escapeString(String(arg))}')`;
+            return `Fn.importValue('${escapeString(String(arg))}')`;
         case 'Fn::Join': {
             const [delimiter, values] = arg as [string, unknown[]];
-            return `cdk.Fn.join('${escapeString(delimiter)}', ${valueToTs(values, depth)})`;
+            return `Fn.join('${escapeString(delimiter)}', ${valueToTs(values, depth)})`;
         }
         case 'Fn::Select': {
             const [index, list] = arg as [number, unknown[]];
-            return `cdk.Fn.select(${index}, ${valueToTs(list, depth)})`;
+            return `Fn.select(${index}, ${valueToTs(list, depth)})`;
         }
         case 'Fn::Split': {
             const [delim, source] = arg as [string, unknown];
-            return `cdk.Fn.split('${escapeString(delim)}', ${valueToTs(source, depth)})`;
+            return `Fn.split('${escapeString(delim)}', ${valueToTs(source, depth)})`;
         }
         case 'Fn::If': {
             const [cond, thenVal, elseVal] = arg as [string, unknown, unknown];
-            return `cdk.Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal, depth)}, ${valueToTs(elseVal, depth)})`;
+            return `Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal, depth)}, ${valueToTs(elseVal, depth)})`;
         }
         case 'Fn::FindInMap': {
             const [mapName, first, second] = arg as [string, unknown, unknown];
-            return `cdk.Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first, depth)}, ${valueToTs(second, depth)})`;
+            return `Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first, depth)}, ${valueToTs(second, depth)})`;
         }
         case 'Fn::Base64':
-            return `cdk.Fn.base64(${valueToTs(arg, depth)})`;
+            return `Fn.base64(${valueToTs(arg, depth)})`;
         default:
             return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg, depth)}`;
     }
@@ -120,9 +125,11 @@ function intrinsicToTs(fn: string, arg: unknown, depth: number): string {
 /**
  * Converts a CloudFormation value to a TypeScript code string.
  * Property keys are converted from PascalCase to camelCase.
- * Intrinsic functions are mapped to cdk.Fn.* helpers.
+ * Intrinsic functions are mapped to Fn.* helpers.
  */
 export function valueToTs(value: unknown, depth: number): string {
+    if (value instanceof RawTs) return value.code;
+
     const intrinsic = detectIntrinsic(value);
     if (intrinsic) return intrinsicToTs(intrinsic.fn, intrinsic.arg, depth);
 

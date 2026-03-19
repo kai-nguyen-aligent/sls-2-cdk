@@ -11,7 +11,7 @@ import type {
     GeneratedResource,
     SkippedResource,
 } from '../types/index.js';
-import { valueToTs } from '../utils/cfn-to-ts.js';
+import { RawTs, valueToTs } from '../utils/cfn-to-ts.js';
 
 /**
  * Suffixes appended by Serverless Framework to CloudFormation logical IDs.
@@ -41,7 +41,17 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'lambdaNodejs',
         className: 'NodejsFunction',
         cfnNameProp: 'FunctionName',
-        omitProps: new Set(['Code', 'Handler']),
+        omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role']),
+        propTransforms: new Map([
+            ['Timeout', v => (typeof v === 'number' ? new RawTs(`Duration.seconds(${v})`) : v)],
+            [
+                'Environment',
+                v =>
+                    v && typeof v === 'object' && 'Variables' in (v as Record<string, unknown>)
+                        ? (v as Record<string, unknown>)['Variables']
+                        : v,
+            ],
+        ]),
     },
     'AWS::Lambda::EventSourceMapping': {
         cdkModule: 'aws-cdk-lib/aws-lambda',
@@ -76,6 +86,33 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(),
     },
 
+    'AWS::StepFunctions::StateMachine': {
+        cdkModule: 'aws-cdk-lib/aws-stepfunctions',
+        importAlias: 'sfn',
+        className: 'StateMachine',
+        cfnNameProp: 'StateMachineName',
+        // TODO: We do not want this here because we use the yaml file + lambda substitution
+        // Check out: @aligent/cdk-step-function-from-file construct
+        // Handle: definitionSubstitutions by extract them from DefinitionString
+        omitProps: new Set(['DefinitionString', 'LoggingConfiguration', 'RoleArn']),
+        propTransforms: new Map([
+            [
+                'StateMachineType',
+                v => (typeof v === 'string' ? new RawTs(`StateMachineType.${v}`) : v),
+            ],
+        ]),
+    },
+
+    // API Gateway
+    'AWS::ApiGateway::RestApi': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        className: 'RestApi',
+        cfnNameProp: 'Name',
+        omitProps: new Set(),
+    },
+    // TODO: ApiKey, UsagePlan
+
     // IAM
     // 'AWS::IAM::Role': {
     //     cdkModule: 'aws-cdk-lib/aws-iam',
@@ -102,14 +139,6 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
     // },
 
     // Step Functions
-    'AWS::StepFunctions::StateMachine': {
-        cdkModule: 'aws-cdk-lib/aws-stepfunctions',
-        importAlias: 'sfn',
-        className: 'StateMachine',
-        cfnNameProp: 'StateMachineName',
-        // TODO: We do not want this here because we use the yaml file + lambda substitution
-        omitProps: new Set(['DefinitionString']),
-    },
 
     // SQS
     'AWS::SQS::Queue': {
@@ -145,16 +174,6 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(),
     },
     // TODO: className: 'Schedule'
-
-    // API Gateway
-    'AWS::ApiGateway::RestApi': {
-        cdkModule: 'aws-cdk-lib/aws-apigateway',
-        importAlias: 'apigw',
-        className: 'RestApi',
-        cfnNameProp: 'Name',
-        omitProps: new Set(),
-    },
-    // TODO: ApiKey, UsagePlan
 
     // CloudWatch
     'AWS::CloudWatch::Alarm': {
@@ -218,6 +237,14 @@ function processProperties(
 
     for (const key of mapping.omitProps) {
         delete result[key];
+    }
+
+    if (mapping.propTransforms) {
+        for (const [key, transform] of mapping.propTransforms) {
+            if (key in result) {
+                result[key] = transform(result[key]);
+            }
+        }
     }
 
     return result;
