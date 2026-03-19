@@ -150,7 +150,7 @@ export default class Migrate extends Command {
         );
 
         this.log('Step 4: Updating shared stack with SSM parameters...');
-        //
+        // FIXME: Deal with SSM path that has ${self:customSharedconfigStoreparametersPrefix} etc...
         await this.runStep('04-update-shared-stack', stepOutputDir, () =>
             updateSharedStack(
                 varResult.data.substitutions,

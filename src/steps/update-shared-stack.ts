@@ -10,10 +10,16 @@ import type {
 
 /**
  * Converts an SSM path to a camelCase JavaScript identifier.
- * e.g. `/my-app/database/connection-url` → `myAppDatabaseConnectionUrl`
+ * Serverless variables like `${self:provider.stage}` are replaced with their last segment.
+ * e.g. `/my-app/${self:provider.stage}/connection-url` → `myAppStageConnectionUrl`
  */
 function ssmPathToIdentifier(ssmPath: string): string {
-    const parts = ssmPath
+    const resolved = ssmPath.replace(/\$\{[^}]+\}/g, match => {
+        const inner = match.slice(2, -1); // strip ${ and }
+        return inner.split('.').pop() ?? inner;
+    });
+
+    const parts = resolved
         .split(/[/\-_.]+/)
         .filter(Boolean)
         .map(s => s.toLowerCase());
