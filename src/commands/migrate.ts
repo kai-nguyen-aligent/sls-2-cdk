@@ -137,7 +137,7 @@ export default class Migrate extends Command {
 
         this.log('Step 2: Running serverless package...');
         const packageResult = await this.runStep('02-serverless-package', stepOutputDir, () =>
-            runServerlessPackage(servicePath, 'serverless-var-subsitution.yml')
+            runServerlessPackage(servicePath, 'serverless-vars-subsitution.yml')
         );
         const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
         fs.copyFileSync(packageResult.data.templatePath, templateDest);
