@@ -364,7 +364,7 @@ function buildStateMachineStatement(
     if (definitionInfo) {
         const sourceDir = path.dirname(sourceFilePath);
         const relYamlPath = path.relative(sourceDir, definitionInfo.yamlPath).replace(/\\/g, '/');
-        propLines.push(`    definitionFileName: path.join(__dirname, '${relYamlPath}'),`);
+        propLines.push(`    filepath: path.join(__dirname, '${relYamlPath}'),`);
 
         const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
         if (lambdaSubs.length > 0) {
@@ -410,7 +410,7 @@ function applyToSourceFile(
     sourceFile: SourceFile,
     entries: ResourceEntry[],
     moduleAliases: Map<string, string>,
-    stateMachineDefinitions: Map<string, StateMachineDefinitionInfo>
+    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>
 ): void {
     // Ensure base imports exist
     if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'constructs')) {
@@ -469,7 +469,7 @@ function applyToSourceFile(
 
         const comments: string[] = [];
         if (entry.condition) {
-            comments.push(`// Condition: ${entry.condition}`);
+            comments.push(`\n// Condition: ${entry.condition}`);
         }
         if (entry.dependsOn && entry.dependsOn.length > 0) {
             comments.push(`// DependsOn: ${entry.dependsOn.join(', ')}`);
@@ -479,7 +479,7 @@ function applyToSourceFile(
 
         let constructStatement: string;
         if (entry.mapping.className === 'StateMachineFromFile') {
-            const definitionInfo = stateMachineDefinitions.get(cfnLogicalId);
+            const definitionInfo = stateMachineDefinitions[cfnLogicalId];
             constructStatement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
         } else {
             const varName = pascalToCamel(cdkId);
@@ -507,7 +507,7 @@ export function generateConstructs(
     template: CloudFormationTemplate,
     keepNames: boolean,
     destinationServicePath: string,
-    stateMachineDefinitions: Map<string, StateMachineDefinitionInfo> = new Map()
+    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {

@@ -39,7 +39,7 @@ export function extractStateMachineDefinitions(
     template: CloudFormationTemplate,
     destinationServicePath: string
 ): ExtractStateMachineDefinitionsResult {
-    const definitions = new Map<string, StateMachineDefinitionInfo>();
+    const definitions: Record<string, StateMachineDefinitionInfo> = {};
 
     for (const [logicalId, resource] of Object.entries(template.Resources)) {
         if (resource.Type !== 'AWS::StepFunctions::StateMachine') continue;
@@ -76,15 +76,15 @@ export function extractStateMachineDefinitions(
         const aslObj = JSON.parse(resolvedAsl) as unknown;
         const aslYaml = stringify(aslObj);
 
-        const outputDir = path.join(destinationServicePath, 'src', 'infra', 'stepfunctions');
+        const outputDir = path.join(destinationServicePath, 'src', 'infra', 'step-functions');
         fs.mkdirSync(outputDir, { recursive: true });
 
         const fileName = deriveYamlFileName(logicalId, props);
         const yamlPath = path.join(outputDir, `${fileName}.asl.yaml`);
         fs.writeFileSync(yamlPath, aslYaml, 'utf-8');
 
-        definitions.set(logicalId, { yamlPath, substitutions });
+        definitions[logicalId] = { yamlPath, substitutions };
     }
 
-    return { definitions, count: definitions.size };
+    return { definitions, count: Object.keys(definitions).length };
 }

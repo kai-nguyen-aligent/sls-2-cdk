@@ -244,7 +244,7 @@ export interface StateMachineDefinitionInfo {
 
 export interface ExtractStateMachineDefinitionsResult {
     /** Map of CloudFormation logical ID to definition info */
-    definitions: Map<string, StateMachineDefinitionInfo>;
+    definitions: Record<string, StateMachineDefinitionInfo>;
     /** Number of state machine definitions extracted */
     count: number;
 }
