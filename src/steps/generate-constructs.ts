@@ -61,6 +61,15 @@ function processProperties(
         }
     }
 
+    if (mapping.propExpansions) {
+        for (const [key, expand] of mapping.propExpansions) {
+            if (key in result) {
+                Object.assign(result, expand(result[key]));
+                delete result[key];
+            }
+        }
+    }
+
     return result;
 }
 
@@ -253,6 +262,20 @@ function applyToSourceFile(
             sourceFile.addImportDeclaration({
                 namespaceImport: alias,
                 moduleSpecifier: modulePath,
+            });
+        }
+    }
+
+    const hasVpc = entries.some(e => 'vpc' in e.properties);
+    if (hasVpc) {
+        if (
+            !sourceFile.getImportDeclaration(
+                d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-ec2'
+            )
+        ) {
+            sourceFile.addImportDeclaration({
+                namespaceImport: 'ec2',
+                moduleSpecifier: 'aws-cdk-lib/aws-ec2',
             });
         }
     }

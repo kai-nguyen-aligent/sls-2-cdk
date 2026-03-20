@@ -1,5 +1,5 @@
 import type { CdkMapping } from '../types/index.js';
-import { RawTs } from './cfn-to-ts.js';
+import { RawTs, valueToTs } from './cfn-to-ts.js';
 
 /**
  * Suffixes appended by Serverless Framework to CloudFormation logical IDs.
@@ -29,7 +29,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'lambdaNodejs',
         className: 'NodejsFunction',
         cfnNameProp: 'FunctionName',
-        omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role']),
+        omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role', 'TracingConfig']),
         propTransforms: new Map([
             ['Timeout', v => (typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v)],
             [
@@ -38,6 +38,38 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     v && typeof v === 'object' && 'Variables' in (v as Record<string, unknown>)
                         ? (v as Record<string, unknown>)['Variables']
                         : v,
+            ],
+        ]),
+        propExpansions: new Map([
+            [
+                'VpcConfig',
+                v => {
+                    const cfg = (v ?? {}) as {
+                        SubnetIds?: unknown[];
+                        SecurityGroupIds?: unknown[];
+                    };
+                    const subnetIds = cfg.SubnetIds ?? [];
+                    const sgIds = cfg.SecurityGroupIds ?? [];
+                    const subnets = subnetIds
+                        .map(
+                            (id, i) =>
+                                `ec2.Subnet.fromSubnetId(this, 'Subnet${i}', ${valueToTs(id)})`
+                        )
+                        .join(', ');
+                    const sgs = sgIds
+                        .map(
+                            (id, i) =>
+                                `ec2.SecurityGroup.fromSecurityGroupId(this, 'SecurityGroup${i}', ${valueToTs(id)})`
+                        )
+                        .join(', ');
+                    return {
+                        vpc: new RawTs(
+                            `ec2.Vpc.fromLookup(this, 'Vpc', { vpcId: '' /* TODO: [IMPORTANT] replace with actual VPC ID */ })`
+                        ),
+                        vpcSubnets: new RawTs(`{ subnets: [${subnets}] }`),
+                        securityGroups: new RawTs(`[${sgs}]`),
+                    };
+                },
             ],
         ]),
     },

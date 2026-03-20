@@ -171,7 +171,9 @@ describe('generateConstructs', () => {
                     Type: 'AWS::Lambda::Function',
                     Properties: {
                         Environment: {
-                            Variables: { SERVICE_URL: { 'Fn::Sub': 'https://${AWS::StackName}.example.com' } },
+                            Variables: {
+                                SERVICE_URL: { 'Fn::Sub': 'https://${AWS::StackName}.example.com' },
+                            },
                         },
                     },
                 },
