@@ -266,8 +266,8 @@ function applyToSourceFile(
         }
     }
 
-    const hasVpc = entries.some(e => 'vpc' in e.properties);
-    if (hasVpc) {
+    const vpcEntries = entries.filter(e => 'vpc' in e.properties);
+    if (vpcEntries.length > 0) {
         if (
             !sourceFile.getImportDeclaration(
                 d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-ec2'
@@ -312,6 +312,11 @@ function applyToSourceFile(
         ctor.addStatements(`const sharedEnv = { ${envProps} };`);
     }
 
+    if (vpcEntries.length > 0 && !existingBody.includes('vpcConfig')) {
+        const { vpc, vpcSubnets, securityGroups } = vpcEntries[0]!.properties;
+        ctor.addStatements(`const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups })};`);
+    }
+
     for (const entry of entries) {
         const { cdkId, cfnLogicalId } = entry.logicalId;
         if (existingBody.includes(`'${cdkId}'`)) continue;
@@ -345,9 +350,20 @@ function applyToSourceFile(
                     Environment: new RawTs(buildLambdaEnvTs(envVars, commonEnvKeys)),
                 };
             }
+            let propsTs: string;
+            if ('vpc' in props) {
+                const { vpc: _vpc, vpcSubnets: _vs, securityGroups: _sg, ...rest } = props;
+                const restTs = valueToTs(rest);
+                propsTs =
+                    restTs === '{}'
+                        ? '{ ...vpcConfig }'
+                        : restTs.replace(/^\{ /, '{ ...vpcConfig, ');
+            } else {
+                propsTs = valueToTs(props);
+            }
             constructStatement =
                 `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
-                `(this, '${cdkId}', ${valueToTs(props)});`;
+                `(this, '${cdkId}', ${propsTs});`;
         }
 
         ctor.addStatements([...comments, constructStatement].join('\n'));
