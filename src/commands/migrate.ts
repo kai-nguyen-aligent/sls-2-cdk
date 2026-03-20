@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
+import { extractStateMachineDefinitions } from '../steps/extract-state-machine-definitions.js';
 import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
@@ -163,13 +164,20 @@ export default class Migrate extends Command {
             generateCdkService(destinationDir, path.basename(servicePath))
         );
 
-        this.log('Step 6: Generating CDK constructs...');
-        const constructResult = await this.runStep('06-generate-constructs', stepOutputDir, () =>
-            generateConstructs(template, keepNames, genResult.data)
+        this.log('Step 6: Extracting Step Function definitions...');
+        const smResult = await this.runStep(
+            '06-extract-state-machine-definitions',
+            stepOutputDir,
+            () => extractStateMachineDefinitions(template, genResult.data)
         );
 
-        this.log('Step 7: Migrating runtime code...');
-        await this.runStep('07-migrate-runtime-code', stepOutputDir, () =>
+        this.log('Step 7: Generating CDK constructs...');
+        const constructResult = await this.runStep('07-generate-constructs', stepOutputDir, () =>
+            generateConstructs(template, keepNames, genResult.data, smResult.data.definitions)
+        );
+
+        this.log('Step 8: Migrating runtime code...');
+        await this.runStep('08-migrate-runtime-code', stepOutputDir, () =>
             migrateRuntimeCode(servicePath, genResult.data)
         );
 
@@ -183,6 +191,7 @@ export default class Migrate extends Command {
             `  Var substitutions: ${varResult.data.count} (across ${varResult.data.subFiles.length} files)`
         );
         this.log(`  Lambda functions:  ${envMapResult.data.functionCount}`);
+        this.log(`  Step Functions:    ${smResult.data.count} definitions extracted`);
         this.log(
             `  CDK constructs:    ${constructResult.data.generatedCount} generated, ${constructResult.data.skippedCount} skipped`
         );

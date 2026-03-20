@@ -10,8 +10,9 @@ import type {
     GenerateConstructsResult,
     GeneratedResource,
     SkippedResource,
+    StateMachineDefinitionInfo,
 } from '../types/index.js';
-import { RawTs, valueToTs } from '../utils/cfn-to-ts.js';
+import { RawTs, pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
 
 /**
  * Suffixes appended by Serverless Framework to CloudFormation logical IDs.
@@ -87,13 +88,10 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
     },
 
     'AWS::StepFunctions::StateMachine': {
-        cdkModule: 'aws-cdk-lib/aws-stepfunctions',
-        importAlias: 'sfn',
-        className: 'StateMachine',
+        cdkModule: '@aligent/cdk-step-function-from-file',
+        importAlias: 'sfnFromFile',
+        className: 'StepFunctionFromFile',
         cfnNameProp: 'StateMachineName',
-        // TODO: We do not want this here because we use the yaml file + lambda substitution
-        // Check out: @aligent/cdk-step-function-from-file construct
-        // Handle: definitionSubstitutions by extract them from DefinitionString
         omitProps: new Set(['DefinitionString', 'LoggingConfiguration', 'RoleArn']),
         propTransforms: new Map([
             [
@@ -207,7 +205,7 @@ const CFN_TO_CDK: Record<string, CdkMapping> = {
  * Derives a CDK construct ID from a CloudFormation logical ID by stripping
  * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`).
  */
-function generateCdkId(logicalId: string): string {
+export function generateCdkId(logicalId: string): string {
     for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
         if (logicalId.endsWith(suffix) && logicalId.length > suffix.length) {
             return logicalId.slice(0, -suffix.length);
@@ -335,10 +333,84 @@ function resolveResources(template: CloudFormationTemplate, keepNames: boolean):
     return { entries, moduleAliases, generated, skipped };
 }
 
+function buildStateMachineStatement(
+    entry: ResourceEntry,
+    definitionInfo: StateMachineDefinitionInfo | undefined,
+    sourceFilePath: string
+): string {
+    const { cdkId } = entry.logicalId;
+    const varName = pascalToCamel(cdkId);
+    const propLines: string[] = [];
+
+    if (entry.properties['StateMachineName'] !== undefined) {
+        propLines.push(
+            `    stateMachineName: ${valueToTs(entry.properties['StateMachineName'], 2)},`
+        );
+    }
+    if (entry.properties['StateMachineType'] !== undefined) {
+        propLines.push(
+            `    stateMachineType: ${valueToTs(entry.properties['StateMachineType'], 2)},`
+        );
+    }
+
+    const tracingConfig = entry.properties['TracingConfiguration'];
+    if (tracingConfig && typeof tracingConfig === 'object') {
+        const enabled = (tracingConfig as Record<string, unknown>)['Enabled'];
+        if (enabled !== undefined) {
+            propLines.push(`    tracingEnabled: ${valueToTs(enabled, 2)},`);
+        }
+    }
+
+    if (definitionInfo) {
+        const sourceDir = path.dirname(sourceFilePath);
+        const relYamlPath = path.relative(sourceDir, definitionInfo.yamlPath).replace(/\\/g, '/');
+        propLines.push(`    definitionFileName: path.join(__dirname, '${relYamlPath}'),`);
+
+        const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
+        if (lambdaSubs.length > 0) {
+            const lambdaEntries = lambdaSubs
+                .map(s => `        ${s.cdkVarName}: ${s.cdkVarName},`)
+                .join('\n');
+            propLines.push(`    lambdaFunctions: {\n${lambdaEntries}\n    },`);
+        }
+
+        const nonLambdaSubs = definitionInfo.substitutions.filter(s => !s.isLambda);
+        if (nonLambdaSubs.length > 0) {
+            const subEntries = nonLambdaSubs
+                .map(
+                    s =>
+                        `        ${s.cdkVarName}: '', ` +
+                        `// TODO: replace with correct CDK expression`
+                )
+                .join('\n');
+            propLines.push(`    definitionSubstitutions: {\n${subEntries}\n    },`);
+        }
+    } else {
+        propLines.push(
+            `    // TODO: DefinitionString was not Fn::Sub — provide definitionFileName manually`
+        );
+        propLines.push(`    definitionFileName: '',`);
+    }
+
+    const handledKeys = new Set(['StateMachineName', 'StateMachineType', 'TracingConfiguration']);
+    for (const [k, v] of Object.entries(entry.properties)) {
+        if (!handledKeys.has(k)) {
+            propLines.push(`    // TODO: ${k}: ${valueToTs(v, 2)},`);
+        }
+    }
+
+    const propsBlock = propLines.join('\n');
+    return (
+        `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
+        `(this, '${cdkId}', {\n${propsBlock}\n});`
+    );
+}
+
 function applyToSourceFile(
     sourceFile: SourceFile,
     entries: ResourceEntry[],
-    moduleAliases: Map<string, string>
+    moduleAliases: Map<string, string>,
+    stateMachineDefinitions: Map<string, StateMachineDefinitionInfo>
 ): void {
     // Ensure base imports exist
     if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'constructs')) {
@@ -362,6 +434,26 @@ function applyToSourceFile(
         }
     }
 
+    const hasStateMachines = moduleAliases.has('@aligent/cdk-step-function-from-file');
+    if (hasStateMachines) {
+        if (
+            !sourceFile.getImportDeclaration(
+                d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-stepfunctions'
+            )
+        ) {
+            sourceFile.addImportDeclaration({
+                namespaceImport: 'sfn',
+                moduleSpecifier: 'aws-cdk-lib/aws-stepfunctions',
+            });
+        }
+        if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'node:path')) {
+            sourceFile.addImportDeclaration({
+                namespaceImport: 'path',
+                moduleSpecifier: 'node:path',
+            });
+        }
+    }
+
     // Resolve class: by name if provided, otherwise fall back to the first class in the file
     const classDecl = sourceFile.getClasses()[0];
     if (!classDecl) return;
@@ -369,25 +461,34 @@ function applyToSourceFile(
     const ctor = classDecl.getConstructors()[0];
     if (!ctor) return;
 
+    const sourceFilePath = sourceFile.getFilePath();
     const existingBody = ctor.getBody()?.getText() ?? '';
     for (const entry of entries) {
         const { cdkId, cfnLogicalId } = entry.logicalId;
         if (existingBody.includes(`'${cdkId}'`)) continue;
 
-        const statements: string[] = [];
+        const comments: string[] = [];
         if (entry.condition) {
-            statements.push(`// Condition: ${entry.condition}`);
+            comments.push(`// Condition: ${entry.condition}`);
         }
         if (entry.dependsOn && entry.dependsOn.length > 0) {
-            statements.push(`// DependsOn: ${entry.dependsOn.join(', ')}`);
+            comments.push(`// DependsOn: ${entry.dependsOn.join(', ')}`);
         }
-        statements.push(`// ${cfnLogicalId} (${entry.cfnType})`);
-        statements.push(`// TODO: Review and adjust properties for ${entry.mapping.className}`);
+        comments.push(`// ${cfnLogicalId} (${entry.cfnType})`);
+        comments.push(`// TODO: Review and adjust properties for ${entry.mapping.className}`);
 
-        statements.push(
-            `new ${entry.mapping.importAlias}.${entry.mapping.className}(this, '${cdkId}', ${valueToTs(entry.properties, 2)});`
-        );
-        ctor.addStatements(statements.join('\n'));
+        let constructStatement: string;
+        if (entry.mapping.className === 'StateMachineFromFile') {
+            const definitionInfo = stateMachineDefinitions.get(cfnLogicalId);
+            constructStatement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
+        } else {
+            const varName = pascalToCamel(cdkId);
+            constructStatement =
+                `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
+                `(this, '${cdkId}', ${valueToTs(entry.properties, 2)});`;
+        }
+
+        ctor.addStatements([...comments, constructStatement].join('\n'));
     }
 }
 
@@ -405,7 +506,8 @@ function applyToSourceFile(
 export function generateConstructs(
     template: CloudFormationTemplate,
     keepNames: boolean,
-    destinationServicePath: string
+    destinationServicePath: string,
+    stateMachineDefinitions: Map<string, StateMachineDefinitionInfo> = new Map()
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {
@@ -417,7 +519,7 @@ export function generateConstructs(
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);
 
-    applyToSourceFile(sourceFile, entries, moduleAliases);
+    applyToSourceFile(sourceFile, entries, moduleAliases, stateMachineDefinitions);
     project.saveSync();
 
     return {

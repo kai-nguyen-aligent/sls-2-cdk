@@ -34,7 +34,7 @@ const INTRINSIC_FUNCTIONS = new Set([
  * Converts a PascalCase string to camelCase.
  * Handles leading acronyms (e.g., SSEAlgorithm -> sseAlgorithm).
  */
-function pascalToCamel(str: string): string {
+export function pascalToCamel(str: string): string {
     let i = 0;
     while (i < str.length) {
         const ch = str[i]!;

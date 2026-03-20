@@ -223,6 +223,33 @@ export interface UpdateSharedStackResult {
 }
 
 // ============================================================
+// Step Function Definition Extraction Types
+// ============================================================
+
+export interface StateMachineSubstitution {
+    /** camelCase CDK variable name, used as placeholder key in YAML and CDK reference */
+    cdkVarName: string;
+    /** CloudFormation logical ID of the referenced resource */
+    refLogicalId: string;
+    /** Whether the referenced resource is a Lambda function */
+    isLambda: boolean;
+}
+
+export interface StateMachineDefinitionInfo {
+    /** Absolute path to the written YAML ASL definition file */
+    yamlPath: string;
+    /** Substitutions extracted from the Fn::Sub DefinitionString */
+    substitutions: StateMachineSubstitution[];
+}
+
+export interface ExtractStateMachineDefinitionsResult {
+    /** Map of CloudFormation logical ID to definition info */
+    definitions: Map<string, StateMachineDefinitionInfo>;
+    /** Number of state machine definitions extracted */
+    count: number;
+}
+
+// ============================================================
 // Pipeline / Orchestration Types
 // ============================================================
 
