@@ -101,28 +101,30 @@ export default class Migrate extends Command {
         this.log(`Destination directory: ${destinationDir}`);
         this.log('---');
 
-        const projectPath = this.discoverProject(rootDir);
-        this.log(`Migration Serverless project at: ${projectPath}`);
+        const serverlessYmlPath = this.discoverProject(rootDir);
+        this.log(`Migration Serverless project at: ${serverlessYmlPath}`);
 
         fs.mkdirSync(intermediateDir, { recursive: true });
 
-        await this.processProject(projectPath, rootDir, intermediateDir, destinationDir, keepNames);
+        await this.processProject(
+            serverlessYmlPath,
+            rootDir,
+            intermediateDir,
+            destinationDir,
+            keepNames
+        );
 
         this.log('\nServerless project migrated.');
     }
 
     private async processProject(
-        servicePath: string,
+        serverlessYmlPath: string,
         rootDir: string,
         intermediateDir: string,
         destinationDir: string,
         keepNames: boolean
     ): Promise<void> {
-        const serverlessYmlPath = this.findServerlessYml(servicePath);
-        if (!serverlessYmlPath) {
-            this.error(`No serverless.yml or serverless.yaml found in ${servicePath}`, { exit: 1 });
-        }
-
+        const servicePath = path.dirname(serverlessYmlPath);
         const relServicePath = path.relative(rootDir, servicePath);
         const snapshotDir = relServicePath
             ? path.join(intermediateDir, relServicePath)
@@ -138,7 +140,7 @@ export default class Migrate extends Command {
 
         this.log('Step 2: Running serverless package...');
         const packageResult = await this.runStep('02-serverless-package', stepOutputDir, () =>
-            runServerlessPackage(servicePath, 'serverless-vars-subsitution.yml')
+            runServerlessPackage(servicePath, 'serverless-vars-substitution.yml')
         );
         const templateDest = path.join(stepOutputDir, 'cloudformation-template.json');
         fs.copyFileSync(packageResult.data.templatePath, templateDest);
@@ -151,7 +153,6 @@ export default class Migrate extends Command {
         );
 
         this.log('Step 4: Updating shared stack with SSM parameters...');
-        // FIXME: Deal with SSM path that has ${self:customSharedconfigStoreparametersPrefix} etc...
         await this.runStep('04-update-shared-stack', stepOutputDir, () =>
             updateSharedStack(
                 varResult.data.substitutions,
@@ -236,14 +237,6 @@ export default class Migrate extends Command {
             );
         }
 
-        return path.resolve(rootDir, path.dirname(matches[0]!));
-    }
-
-    private findServerlessYml(dir: string): string | null {
-        for (const name of ['serverless.yml', 'serverless.yaml']) {
-            const fullPath = path.join(dir, name);
-            if (fs.existsSync(fullPath)) return fullPath;
-        }
-        return null;
+        return path.resolve(rootDir, matches[0]!);
     }
 }

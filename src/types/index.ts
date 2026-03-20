@@ -26,7 +26,7 @@ export interface SubstituteVariablesResult {
     count: number;
     /** All generated -sub files (for cleanup) */
     subFiles: string[];
-    /** Path to the generated serverless-vars-subsitution.yml */
+    /** Path to the generated serverless-vars-substitution.yml */
     serverlessSubPath: string;
 }
 

@@ -91,12 +91,12 @@ function classifyVariableType(expression: string): {
 
 /**
  * Generates the -sub file path by inserting '-sub' before the file extension.
- * e.g., ./env.json → ./env-vars-subsitution.json, ./config.yml → ./config-vars-subsitution.yml
+ * e.g., ./env.json → ./env-vars-substitution.json, ./config.yml → ./config-vars-substitution.yml
  */
 function getSubPath(filePath: string): string {
     const ext = path.extname(filePath);
     const base = filePath.slice(0, -ext.length || undefined);
-    return `${base}-vars-subsitution${ext}`;
+    return `${base}-vars-substitution${ext}`;
 }
 
 /**
@@ -228,7 +228,7 @@ function serializeDocument(doc: ReturnType<typeof parseDocument>, originalConten
  * - serverless.yml: Parsed as a YAML document. Only external variables (ssm, s3, cf,
  *   env, aws) are substituted. ${file(...)} paths are rewritten to point to -sub copies.
  *   ${self:...}, ${sls:...}, ${opt:...} are left intact. CloudFormation !Sub tagged
- *   values are skipped entirely. Result is written to serverless-vars-subsitution.yml.
+ *   values are skipped entirely. Result is written to serverless-vars-substitution.yml.
  *
  * No original files are modified.
  */
@@ -264,7 +264,7 @@ export function substituteVariables(serverlessYmlPath: string): SubstituteVariab
     const doc = parseDocument(content);
     substituteDocumentVariables(doc, serverlessDir, filePathMap, substitutions);
 
-    const serverlessSubPath = path.join(serverlessDir, 'serverless-vars-subsitution.yml');
+    const serverlessSubPath = path.join(serverlessDir, 'serverless-vars-substitution.yml');
     fs.writeFileSync(serverlessSubPath, serializeDocument(doc, content));
     subFiles.push(serverlessSubPath);
 

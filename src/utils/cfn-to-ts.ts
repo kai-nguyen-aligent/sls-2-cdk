@@ -1,5 +1,3 @@
-const INDENT = '    ';
-
 /** Wraps a TypeScript expression that should be emitted verbatim without quoting. */
 export class RawTs {
     constructor(public readonly code: string) {}
@@ -17,7 +15,7 @@ const PSEUDO_PARAMS: Record<string, string> = {
     'AWS::URLSuffix': 'Aws.URL_SUFFIX',
 };
 
-const INTRINSIC_FUNCTIONS = new Set([
+export const INTRINSIC_FUNCTIONS = new Set([
     'Ref',
     'Fn::Sub',
     'Fn::GetAtt',
@@ -60,7 +58,7 @@ function escapeString(str: string): string {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function detectIntrinsic(value: unknown): { fn: string; arg: unknown } | null {
+export function detectIntrinsic(value: unknown): { fn: string; arg: unknown } | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const keys = Object.keys(value as Record<string, unknown>);
     if (keys.length !== 1 || !keys[0]) return null;
@@ -72,7 +70,7 @@ function detectIntrinsic(value: unknown): { fn: string; arg: unknown } | null {
 /**
  * Converts a CloudFormation intrinsic function to CDK TypeScript code.
  */
-function intrinsicToTs(fn: string, arg: unknown, depth: number): string {
+function intrinsicToTs(fn: string, arg: unknown): string {
     switch (fn) {
         case 'Ref': {
             const pseudo = PSEUDO_PARAMS[arg as string];
@@ -89,49 +87,50 @@ function intrinsicToTs(fn: string, arg: unknown, depth: number): string {
             }
             if (Array.isArray(arg)) {
                 const [template, vars] = arg as [string, Record<string, unknown>];
-                return `Fn.sub('${escapeString(template)}', ${valueToTs(vars, depth)})`;
+                return `Fn.sub('${escapeString(template)}', ${valueToTs(vars)})`;
             }
-            return `Fn.sub(${valueToTs(arg, depth)})`;
+            return `Fn.sub(${valueToTs(arg)})`;
         }
         case 'Fn::ImportValue':
             return `Fn.importValue('${escapeString(String(arg))}')`;
         case 'Fn::Join': {
             const [delimiter, values] = arg as [string, unknown[]];
-            return `Fn.join('${escapeString(delimiter)}', ${valueToTs(values, depth)})`;
+            return `Fn.join('${escapeString(delimiter)}', ${valueToTs(values)})`;
         }
         case 'Fn::Select': {
             const [index, list] = arg as [number, unknown[]];
-            return `Fn.select(${index}, ${valueToTs(list, depth)})`;
+            return `Fn.select(${index}, ${valueToTs(list)})`;
         }
         case 'Fn::Split': {
             const [delim, source] = arg as [string, unknown];
-            return `Fn.split('${escapeString(delim)}', ${valueToTs(source, depth)})`;
+            return `Fn.split('${escapeString(delim)}', ${valueToTs(source)})`;
         }
         case 'Fn::If': {
             const [cond, thenVal, elseVal] = arg as [string, unknown, unknown];
-            return `Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal, depth)}, ${valueToTs(elseVal, depth)})`;
+            return `Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal)}, ${valueToTs(elseVal)})`;
         }
         case 'Fn::FindInMap': {
             const [mapName, first, second] = arg as [string, unknown, unknown];
-            return `Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first, depth)}, ${valueToTs(second, depth)})`;
+            return `Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first)}, ${valueToTs(second)})`;
         }
         case 'Fn::Base64':
-            return `Fn.base64(${valueToTs(arg, depth)})`;
+            return `Fn.base64(${valueToTs(arg)})`;
         default:
-            return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg, depth)}`;
+            return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg)}`;
     }
 }
 
 /**
- * Converts a CloudFormation value to a TypeScript code string.
+ * Converts a CloudFormation value to a compact TypeScript code string.
  * Property keys are converted from PascalCase to camelCase.
  * Intrinsic functions are mapped to Fn.* helpers.
+ * Output is intentionally compact — run prettier to format the generated file.
  */
-export function valueToTs(value: unknown, depth: number): string {
+export function valueToTs(value: unknown): string {
     if (value instanceof RawTs) return value.code;
 
     const intrinsic = detectIntrinsic(value);
-    if (intrinsic) return intrinsicToTs(intrinsic.fn, intrinsic.arg, depth);
+    if (intrinsic) return intrinsicToTs(intrinsic.fn, intrinsic.arg);
 
     if (value === null || value === undefined) return 'undefined';
     if (typeof value === 'string') return `'${escapeString(value)}'`;
@@ -139,21 +138,14 @@ export function valueToTs(value: unknown, depth: number): string {
 
     if (Array.isArray(value)) {
         if (value.length === 0) return '[]';
-        const innerIndent = INDENT.repeat(depth + 1);
-        const closeIndent = INDENT.repeat(depth);
-        const items = value.map(v => `${innerIndent}${valueToTs(v, depth + 1)}`);
-        return `[\n${items.join(',\n')},\n${closeIndent}]`;
+        return `[${value.map(v => valueToTs(v)).join(', ')}]`;
     }
 
     if (typeof value === 'object') {
         const entries = Object.entries(value as Record<string, unknown>);
         if (entries.length === 0) return '{}';
-        const innerIndent = INDENT.repeat(depth + 1);
-        const closeIndent = INDENT.repeat(depth);
-        const props = entries.map(
-            ([k, v]) => `${innerIndent}${convertPropertyKey(k)}: ${valueToTs(v, depth + 1)}`
-        );
-        return `{\n${props.join(',\n')},\n${closeIndent}}`;
+        const props = entries.map(([k, v]) => `${convertPropertyKey(k)}: ${valueToTs(v)}`);
+        return `{ ${props.join(', ')} }`;
     }
 
     return String(value);

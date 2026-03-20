@@ -4,35 +4,12 @@ import type {
     LambdaEnvMap,
     LambdaEnvVars,
 } from '../types/index.js';
-
-const INTRINSIC_FUNCTIONS = [
-    'Ref',
-    'Fn::Sub',
-    'Fn::GetAtt',
-    'Fn::ImportValue',
-    'Fn::Join',
-    'Fn::Select',
-    'Fn::Split',
-    'Fn::If',
-    'Fn::FindInMap',
-    'Fn::Base64',
-];
-
-function detectIntrinsicType(value: unknown): string | undefined {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        return undefined;
-    }
-    const keys = Object.keys(value as Record<string, unknown>);
-    if (keys.length !== 1) return undefined;
-    const key = keys[0];
-    if (!key) return undefined;
-    return INTRINSIC_FUNCTIONS.find(fn => key === fn);
-}
+import { detectIntrinsic } from '../utils/cfn-to-ts.js';
 
 function makeEnvVarEntry(name: string, value: unknown): EnvVarEntry {
-    const intrinsicType = detectIntrinsicType(value);
-    if (intrinsicType) {
-        return { name, value, isIntrinsic: true, intrinsicType };
+    const intrinsic = detectIntrinsic(value);
+    if (intrinsic) {
+        return { name, value, isIntrinsic: true, intrinsicType: intrinsic.fn };
     }
     return { name, value, isIntrinsic: false };
 }

@@ -5,7 +5,7 @@ export function writeStepOutput(filePath: string, data: unknown): void {
 }
 
 /**
- * Removes all generated -sub files (serverless-vars-subsitution.yml + referenced file copies).
+ * Removes all generated -sub files (serverless-vars-substitution.yml + referenced file copies).
  */
 export function cleanupSubFiles(subFiles: string[]): void {
     subFiles.forEach(file => {

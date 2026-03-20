@@ -27,7 +27,7 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            const subPath = path.join(tmpDir, 'env-vars-subsitution.json');
+            const subPath = path.join(tmpDir, 'env-vars-substitution.json');
             expect(fs.existsSync(subPath)).toBe(true);
             const subContent = fs.readFileSync(subPath, 'utf-8');
             expect(subContent).toMatch(/__SLS2CDK_VAR_\d+__/);
@@ -52,7 +52,7 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            expect(fs.existsSync(path.join(tmpDir, 'env-vars-subsitution.json'))).toBe(false);
+            expect(fs.existsSync(path.join(tmpDir, 'env-vars-substitution.json'))).toBe(false);
             expect(result.substitutions).toHaveLength(0);
         });
 
@@ -74,7 +74,7 @@ describe('substituteVariables', () => {
             substituteVariables(ymlPath);
 
             const subContent = fs.readFileSync(
-                path.join(tmpDir, 'config-vars-subsitution.yml'),
+                path.join(tmpDir, 'config-vars-substitution.yml'),
                 'utf-8'
             );
             // ALL variables in referenced files are substituted (including self:)
@@ -87,7 +87,7 @@ describe('substituteVariables', () => {
         });
     });
 
-    describe('serverless.yml → serverless-vars-subsitution.yml', () => {
+    describe('serverless.yml → serverless-vars-substitution.yml', () => {
         it('should not modify the original serverless.yml', () => {
             const original = 'DB_HOST: ${ssm:/myapp/db-host}';
             fs.writeFileSync(ymlPath, original);
@@ -97,7 +97,7 @@ describe('substituteVariables', () => {
             expect(fs.readFileSync(ymlPath, 'utf-8')).toBe(original);
         });
 
-        it('should create serverless-vars-subsitution.yml with external variables substituted', () => {
+        it('should create serverless-vars-substitution.yml with external variables substituted', () => {
             fs.writeFileSync(ymlPath, 'DB_HOST: ${ssm:/myapp/db-host}');
 
             const result = substituteVariables(ymlPath);
@@ -163,7 +163,7 @@ describe('substituteVariables', () => {
             const result = substituteVariables(ymlPath);
 
             const subContent = fs.readFileSync(result.serverlessSubPath, 'utf-8');
-            expect(subContent).toContain('${file(env-vars-subsitution.json)}');
+            expect(subContent).toContain('${file(env-vars-substitution.json)}');
             expect(subContent).not.toContain('${file(./env.json)}');
         });
 
@@ -246,8 +246,8 @@ describe('substituteVariables', () => {
 
             const result = substituteVariables(ymlPath);
 
-            expect(result.subFiles).toContain(path.join(tmpDir, 'env-vars-subsitution.json'));
-            expect(result.subFiles).toContain(path.join(tmpDir, 'serverless-vars-subsitution.yml'));
+            expect(result.subFiles).toContain(path.join(tmpDir, 'env-vars-substitution.json'));
+            expect(result.subFiles).toContain(path.join(tmpDir, 'serverless-vars-substitution.yml'));
         });
 
         it('should delete all -sub files on cleanup', () => {
@@ -282,14 +282,14 @@ describe('substituteVariables', () => {
             expect(result.substitutions).toHaveLength(0);
         });
 
-        it('should always create serverless-vars-subsitution.yml even with no substitutions', () => {
+        it('should always create serverless-vars-substitution.yml even with no substitutions', () => {
             fs.writeFileSync(ymlPath, 'service: my-service');
 
             const result = substituteVariables(ymlPath);
 
             expect(fs.existsSync(result.serverlessSubPath)).toBe(true);
             expect(result.serverlessSubPath).toBe(
-                path.join(tmpDir, 'serverless-vars-subsitution.yml')
+                path.join(tmpDir, 'serverless-vars-substitution.yml')
             );
         });
     });

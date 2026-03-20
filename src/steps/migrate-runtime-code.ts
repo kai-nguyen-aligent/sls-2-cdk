@@ -12,7 +12,7 @@ const IGNORE_FILES = [
     '*lock*',
     'tsconfig*.json',
     '*.config.{js,mjs,ts,mts}',
-    '*-vars-subsitution.{yml,yaml}',
+    '*-vars-substitution.{yml,yaml}',
 ];
 
 function isIgnoredFile(name: string): boolean {
