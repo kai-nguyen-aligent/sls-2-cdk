@@ -368,10 +368,8 @@ function buildStateMachineStatement(
 
         const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
         if (lambdaSubs.length > 0) {
-            const lambdaEntries = lambdaSubs
-                .map(s => `        ${s.cdkVarName}: ${s.cdkVarName},`)
-                .join('\n');
-            propLines.push(`    lambdaFunctions: {\n${lambdaEntries}\n    },`);
+            const lambdaEntries = lambdaSubs.map(s => `        ${s.cdkVarName},`).join('\n');
+            propLines.push(`    lambdaFunctions: [\n${lambdaEntries}\n    ],`);
         }
 
         const nonLambdaSubs = definitionInfo.substitutions.filter(s => !s.isLambda);
@@ -478,7 +476,7 @@ function applyToSourceFile(
         comments.push(`// TODO: Review and adjust properties for ${entry.mapping.className}`);
 
         let constructStatement: string;
-        if (entry.mapping.className === 'StateMachineFromFile') {
+        if (entry.mapping.className === 'StepFunctionFromFile') {
             const definitionInfo = stateMachineDefinitions[cfnLogicalId];
             constructStatement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
         } else {
