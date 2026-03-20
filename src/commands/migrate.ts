@@ -153,12 +153,21 @@ export default class Migrate extends Command {
         );
 
         this.log('Step 4: Updating shared stack with SSM parameters...');
-        await this.runStep('04-update-shared-stack', stepOutputDir, () =>
+        const sharedStackResult = await this.runStep('04-update-shared-stack', stepOutputDir, () =>
             updateSharedStack(
                 varResult.data.substitutions,
                 path.join(destinationDir, 'libs', 'infra', 'src', 'index.ts')
             )
         );
+
+        // Map SSM placeholder strings → `props!.varName.stringValue` CDK expressions
+        const ssmPlaceholderMap = new Map<string, string>();
+        for (const param of sharedStackResult.data.ssmParameters) {
+            const sub = varResult.data.substitutions[param.expression];
+            if (sub?.variableType === 'ssm') {
+                ssmPlaceholderMap.set(sub.placeholder, `props!.${param.varName}.stringValue`);
+            }
+        }
 
         this.log('Step 5: Generating destination CDK service...');
         const genResult = await this.runStep('05-generate-dest-service', stepOutputDir, () =>
@@ -179,7 +188,8 @@ export default class Migrate extends Command {
                 keepNames,
                 genResult.data,
                 smResult.data.definitions,
-                envMapResult.data.sharedVariables
+                envMapResult.data.sharedVariables,
+                ssmPlaceholderMap
             )
         );
 

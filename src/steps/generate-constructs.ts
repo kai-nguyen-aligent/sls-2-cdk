@@ -159,12 +159,31 @@ function resolveResources(template: CloudFormationTemplate, keepNames: boolean):
 }
 
 /**
+ * Resolves a lambda env var value to a TypeScript expression.
+ * If the value is a known SSM placeholder, emits the CDK props reference instead.
+ */
+function resolveEnvValue(value: unknown, ssmPlaceholderMap: Map<string, string>): string {
+    if (typeof value === 'string') {
+        const cdkRef = ssmPlaceholderMap.get(value);
+        if (cdkRef) return cdkRef;
+    }
+    return valueToTs(value);
+}
+
+/**
  * Builds the TypeScript expression for a lambda's `environment` property,
  * spreading `sharedEnv` for common vars and inlining unique ones.
  */
-function buildLambdaEnvTs(envVars: Record<string, unknown>, commonKeys: Set<string>): string {
+function buildLambdaEnvTs(
+    envVars: Record<string, unknown>,
+    commonKeys: Set<string>,
+    ssmPlaceholderMap: Map<string, string>
+): string {
     const uniqueEntries = Object.entries(envVars).filter(([k]) => !commonKeys.has(k));
-    const parts = ['...sharedEnv', ...uniqueEntries.map(([k, v]) => `${k}: ${valueToTs(v)}`)];
+    const parts = [
+        '...sharedEnv',
+        ...uniqueEntries.map(([k, v]) => `${k}: ${resolveEnvValue(v, ssmPlaceholderMap)}`),
+    ];
     return `{ ${parts.join(', ')} }`;
 }
 
@@ -236,7 +255,8 @@ function applyToSourceFile(
     entries: ResourceEntry[],
     moduleAliases: Map<string, string>,
     stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
-    sharedEnvVars: EnvVarEntry[]
+    sharedEnvVars: EnvVarEntry[],
+    ssmPlaceholderMap: Map<string, string>
 ): void {
     // Ensure base imports exist
     if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'constructs')) {
@@ -308,7 +328,9 @@ function applyToSourceFile(
     const existingBody = ctor.getBody()?.getText() ?? '';
 
     if (hasSharedEnv && !existingBody.includes('sharedEnv')) {
-        const envProps = sharedEnvVars.map(v => `${v.name}: ${valueToTs(v.value)}`).join(', ');
+        const envProps = sharedEnvVars
+            .map(v => `${v.name}: ${resolveEnvValue(v.value, ssmPlaceholderMap)}`)
+            .join(', ');
         ctor.addStatements(`const sharedEnv = { ${envProps} };`);
     }
 
@@ -347,7 +369,9 @@ function applyToSourceFile(
                 const envVars = props['Environment'] as Record<string, unknown>;
                 props = {
                     ...props,
-                    Environment: new RawTs(buildLambdaEnvTs(envVars, commonEnvKeys)),
+                    Environment: new RawTs(
+                        buildLambdaEnvTs(envVars, commonEnvKeys, ssmPlaceholderMap)
+                    ),
                 };
             }
             let propsTs: string;
@@ -386,7 +410,8 @@ export function generateConstructs(
     keepNames: boolean,
     destinationServicePath: string,
     stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
-    sharedEnvVars: EnvVarEntry[] = []
+    sharedEnvVars: EnvVarEntry[] = [],
+    ssmPlaceholderMap: Map<string, string> = new Map()
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {
@@ -398,7 +423,14 @@ export function generateConstructs(
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);
 
-    applyToSourceFile(sourceFile, entries, moduleAliases, stateMachineDefinitions, sharedEnvVars);
+    applyToSourceFile(
+        sourceFile,
+        entries,
+        moduleAliases,
+        stateMachineDefinitions,
+        sharedEnvVars,
+        ssmPlaceholderMap
+    );
     project.saveSync();
 
     return {
