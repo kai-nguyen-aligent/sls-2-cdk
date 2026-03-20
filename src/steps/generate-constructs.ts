@@ -20,12 +20,13 @@ import { CFN_TO_CDK, IGNORE_LOGICAL_IDS, SLS_LOGICAL_ID_SUFFIXES } from '../util
  * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`).
  */
 export function generateCdkId(logicalId: string): string {
+    const sanitized = logicalId.replace(/Dash|Underscore/g, '');
     for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
-        if (logicalId.endsWith(suffix) && logicalId.length > suffix.length) {
-            return logicalId.slice(0, -suffix.length);
+        if (sanitized.endsWith(suffix) && sanitized.length > suffix.length) {
+            return sanitized.slice(0, -suffix.length);
         }
     }
-    return logicalId;
+    return sanitized;
 }
 
 /**
