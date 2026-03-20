@@ -98,6 +98,8 @@ export interface EnvVarEntry {
     value: unknown;
     isIntrinsic: boolean;
     intrinsicType?: string | undefined;
+    /** True when this variable has the same value across all Lambda functions in the service. */
+    isShared: boolean;
 }
 
 export interface LambdaEnvVars {

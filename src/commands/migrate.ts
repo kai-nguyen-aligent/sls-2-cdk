@@ -174,7 +174,13 @@ export default class Migrate extends Command {
 
         this.log('Step 7: Generating CDK constructs...');
         const constructResult = await this.runStep('07-generate-constructs', stepOutputDir, () =>
-            generateConstructs(template, keepNames, genResult.data, smResult.data.definitions)
+            generateConstructs(
+                template,
+                keepNames,
+                genResult.data,
+                smResult.data.definitions,
+                envMapResult.data.sharedVariables
+            )
         );
 
         this.log('Step 8: Migrating runtime code...');

@@ -7,12 +7,13 @@ import type {
     CdkIdMapping,
     CdkMapping,
     CloudFormationTemplate,
+    EnvVarEntry,
     GenerateConstructsResult,
     GeneratedResource,
     SkippedResource,
     StateMachineDefinitionInfo,
 } from '../types/index.js';
-import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
+import { RawTs, pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
 import { CFN_TO_CDK, IGNORE_LOGICAL_IDS, SLS_LOGICAL_ID_SUFFIXES } from '../utils/construct-map.js';
 
 /**
@@ -148,6 +149,16 @@ function resolveResources(template: CloudFormationTemplate, keepNames: boolean):
     return { entries, moduleAliases, generated, skipped };
 }
 
+/**
+ * Builds the TypeScript expression for a lambda's `environment` property,
+ * spreading `sharedEnv` for common vars and inlining unique ones.
+ */
+function buildLambdaEnvTs(envVars: Record<string, unknown>, commonKeys: Set<string>): string {
+    const uniqueEntries = Object.entries(envVars).filter(([k]) => !commonKeys.has(k));
+    const parts = ['...sharedEnv', ...uniqueEntries.map(([k, v]) => `${k}: ${valueToTs(v)}`)];
+    return `{ ${parts.join(', ')} }`;
+}
+
 function buildStateMachineStatement(
     entry: ResourceEntry,
     definitionInfo: StateMachineDefinitionInfo | undefined,
@@ -219,7 +230,8 @@ function applyToSourceFile(
     sourceFile: SourceFile,
     entries: ResourceEntry[],
     moduleAliases: Map<string, string>,
-    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>
+    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
+    sharedEnvVars: EnvVarEntry[]
 ): void {
     // Ensure base imports exist
     if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'constructs')) {
@@ -270,8 +282,17 @@ function applyToSourceFile(
     const ctor = classDecl.getConstructors()[0];
     if (!ctor) return;
 
+    const commonEnvKeys = new Set(sharedEnvVars.map(v => v.name));
+    const hasSharedEnv = commonEnvKeys.size > 0;
+
     const sourceFilePath = sourceFile.getFilePath();
     const existingBody = ctor.getBody()?.getText() ?? '';
+
+    if (hasSharedEnv && !existingBody.includes('sharedEnv')) {
+        const envProps = sharedEnvVars.map(v => `${v.name}: ${valueToTs(v.value)}`).join(', ');
+        ctor.addStatements(`const sharedEnv = { ${envProps} };`);
+    }
+
     for (const entry of entries) {
         const { cdkId, cfnLogicalId } = entry.logicalId;
         if (existingBody.includes(`'${cdkId}'`)) continue;
@@ -292,9 +313,19 @@ function applyToSourceFile(
             constructStatement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
         } else {
             const varName = pascalToCamel(cdkId);
+            let props = entry.properties;
+            if (
+                hasSharedEnv &&
+                entry.cfnType === 'AWS::Lambda::Function' &&
+                props['Environment'] &&
+                typeof props['Environment'] === 'object'
+            ) {
+                const envVars = props['Environment'] as Record<string, unknown>;
+                props = { ...props, Environment: new RawTs(buildLambdaEnvTs(envVars, commonEnvKeys)) };
+            }
             constructStatement =
                 `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
-                `(this, '${cdkId}', ${valueToTs(entry.properties)});`;
+                `(this, '${cdkId}', ${valueToTs(props)});`;
         }
 
         ctor.addStatements([...comments, constructStatement].join('\n'));
@@ -316,7 +347,8 @@ export function generateConstructs(
     template: CloudFormationTemplate,
     keepNames: boolean,
     destinationServicePath: string,
-    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>
+    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
+    sharedEnvVars: EnvVarEntry[] = []
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {
@@ -328,7 +360,7 @@ export function generateConstructs(
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);
 
-    applyToSourceFile(sourceFile, entries, moduleAliases, stateMachineDefinitions);
+    applyToSourceFile(sourceFile, entries, moduleAliases, stateMachineDefinitions, sharedEnvVars);
     project.saveSync();
 
     return {

@@ -6,12 +6,12 @@ import type {
 } from '../types/index.js';
 import { detectIntrinsic } from '../utils/cfn-to-ts.js';
 
-function makeEnvVarEntry(name: string, value: unknown): EnvVarEntry {
+function makeEnvVarEntry(name: string, value: unknown, isShared = false): EnvVarEntry {
     const intrinsic = detectIntrinsic(value);
     if (intrinsic) {
-        return { name, value, isIntrinsic: true, intrinsicType: intrinsic.fn };
+        return { name, value, isIntrinsic: true, intrinsicType: intrinsic.fn, isShared };
     }
-    return { name, value, isIntrinsic: false };
+    return { name, value, isIntrinsic: false, isShared };
 }
 
 function findSharedVariables(functions: LambdaEnvVars[]): EnvVarEntry[] {
@@ -76,6 +76,11 @@ export function buildEnvMap(template: CloudFormationTemplate): LambdaEnvMap {
     }
 
     const sharedVariables = findSharedVariables(functions);
+    const sharedNames = new Set(sharedVariables.map(v => v.name));
+
+    for (const fn of functions) {
+        fn.variables = fn.variables.map(v => ({ ...v, isShared: sharedNames.has(v.name) }));
+    }
 
     return {
         functions,
