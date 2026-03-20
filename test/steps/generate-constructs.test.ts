@@ -144,7 +144,7 @@ describe('generateConstructs', () => {
         const result = generateConstructs(template, false, tmpDir, {});
         const content = fs.readFileSync(result.outputPath, 'utf-8');
 
-        expect(content).toContain("Fn.ref('MyTable')");
+        expect(content).toContain("cdk.Fn.ref('MyTable')");
     });
 
     it('should convert Fn::GetAtt intrinsic to Fn.getAtt', () => {
@@ -161,7 +161,7 @@ describe('generateConstructs', () => {
         const result = generateConstructs(template, false, tmpDir, {});
         const content = fs.readFileSync(result.outputPath, 'utf-8');
 
-        expect(content).toContain("Fn.getAtt('MyDLQ', 'Arn')");
+        expect(content).toContain("cdk.Fn.getAtt('MyDLQ', 'Arn')");
     });
 
     it('should convert Fn::Sub intrinsic to Fn.sub', () => {
@@ -180,7 +180,7 @@ describe('generateConstructs', () => {
         const result = generateConstructs(template, false, tmpDir, {});
         const content = fs.readFileSync(result.outputPath, 'utf-8');
 
-        expect(content).toContain("Fn.sub('https://${AWS::StackName}.example.com')");
+        expect(content).toContain("cdk.Fn.sub('https://${AWS::StackName}.example.com')");
     });
 
     it('should map AWS pseudo-parameters to Aws constants', () => {
@@ -202,8 +202,8 @@ describe('generateConstructs', () => {
         const result = generateConstructs(template, false, tmpDir, {});
         const content = fs.readFileSync(result.outputPath, 'utf-8');
 
-        expect(content).toContain('Aws.REGION');
-        expect(content).toContain('Aws.ACCOUNT_ID');
+        expect(content).toContain('cdk.Aws.REGION');
+        expect(content).toContain('cdk.Aws.ACCOUNT_ID');
     });
 
     it('should convert PascalCase property keys to camelCase', () => {

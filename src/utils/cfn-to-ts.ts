@@ -5,14 +5,14 @@ export class RawTs {
 
 /** CloudFormation pseudo-parameters mapped to CDK constants */
 const PSEUDO_PARAMS: Record<string, string> = {
-    'AWS::AccountId': 'Aws.ACCOUNT_ID',
-    'AWS::NotificationARNs': 'Aws.NOTIFICATION_ARNS',
-    'AWS::NoValue': 'Aws.NO_VALUE',
-    'AWS::Partition': 'Aws.PARTITION',
-    'AWS::Region': 'Aws.REGION',
-    'AWS::StackId': 'Aws.STACK_ID',
-    'AWS::StackName': 'Aws.STACK_NAME',
-    'AWS::URLSuffix': 'Aws.URL_SUFFIX',
+    'AWS::AccountId': 'cdk.Aws.ACCOUNT_ID',
+    'AWS::NotificationARNs': 'cdk.Aws.NOTIFICATION_ARNS',
+    'AWS::NoValue': 'cdk.Aws.NO_VALUE',
+    'AWS::Partition': 'cdk.Aws.PARTITION',
+    'AWS::Region': 'cdk.Aws.REGION',
+    'AWS::StackId': 'cdk.Aws.STACK_ID',
+    'AWS::StackName': 'cdk.Aws.STACK_NAME',
+    'AWS::URLSuffix': 'cdk.Aws.URL_SUFFIX',
 };
 
 export const INTRINSIC_FUNCTIONS = new Set([
@@ -75,46 +75,46 @@ function intrinsicToTs(fn: string, arg: unknown): string {
         case 'Ref': {
             const pseudo = PSEUDO_PARAMS[arg as string];
             if (pseudo) return pseudo;
-            return `Fn.ref('${escapeString(String(arg))}')`;
+            return `cdk.Fn.ref('${escapeString(String(arg))}')`;
         }
         case 'Fn::GetAtt': {
             const [resource, attribute] = arg as [string, string];
-            return `Fn.getAtt('${escapeString(resource)}', '${escapeString(attribute)}')`;
+            return `cdk.Fn.getAtt('${escapeString(resource)}', '${escapeString(attribute)}')`;
         }
         case 'Fn::Sub': {
             if (typeof arg === 'string') {
-                return `Fn.sub('${escapeString(arg)}')`;
+                return `cdk.Fn.sub('${escapeString(arg)}')`;
             }
             if (Array.isArray(arg)) {
                 const [template, vars] = arg as [string, Record<string, unknown>];
-                return `Fn.sub('${escapeString(template)}', ${valueToTs(vars)})`;
+                return `cdk.Fn.sub('${escapeString(template)}', ${valueToTs(vars)})`;
             }
-            return `Fn.sub(${valueToTs(arg)})`;
+            return `cdk.Fn.sub(${valueToTs(arg)})`;
         }
         case 'Fn::ImportValue':
-            return `Fn.importValue('${escapeString(String(arg))}')`;
+            return `cdk.Fn.importValue('${escapeString(String(arg))}')`;
         case 'Fn::Join': {
             const [delimiter, values] = arg as [string, unknown[]];
-            return `Fn.join('${escapeString(delimiter)}', ${valueToTs(values)})`;
+            return `cdk.Fn.join('${escapeString(delimiter)}', ${valueToTs(values)})`;
         }
         case 'Fn::Select': {
             const [index, list] = arg as [number, unknown[]];
-            return `Fn.select(${index}, ${valueToTs(list)})`;
+            return `cdk.Fn.select(${index}, ${valueToTs(list)})`;
         }
         case 'Fn::Split': {
             const [delim, source] = arg as [string, unknown];
-            return `Fn.split('${escapeString(delim)}', ${valueToTs(source)})`;
+            return `cdk.Fn.split('${escapeString(delim)}', ${valueToTs(source)})`;
         }
         case 'Fn::If': {
             const [cond, thenVal, elseVal] = arg as [string, unknown, unknown];
-            return `Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal)}, ${valueToTs(elseVal)})`;
+            return `cdk.Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal)}, ${valueToTs(elseVal)})`;
         }
         case 'Fn::FindInMap': {
             const [mapName, first, second] = arg as [string, unknown, unknown];
-            return `Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first)}, ${valueToTs(second)})`;
+            return `cdk.Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first)}, ${valueToTs(second)})`;
         }
         case 'Fn::Base64':
-            return `Fn.base64(${valueToTs(arg)})`;
+            return `cdk.Fn.base64(${valueToTs(arg)})`;
         default:
             return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg)}`;
     }

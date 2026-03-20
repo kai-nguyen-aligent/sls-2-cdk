@@ -236,7 +236,13 @@ function applyToSourceFile(
             moduleSpecifier: 'constructs',
         });
     }
-    if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'aws-cdk-lib')) {
+    if (
+        !sourceFile.getImportDeclaration(
+            d =>
+                d.getModuleSpecifierValue() === 'aws-cdk-lib' &&
+                d.getNamespaceImport() !== undefined
+        )
+    ) {
         sourceFile.addImportDeclaration({
             namespaceImport: 'cdk',
             moduleSpecifier: 'aws-cdk-lib',
@@ -261,12 +267,6 @@ function applyToSourceFile(
             sourceFile.addImportDeclaration({
                 namespaceImport: 'sfn',
                 moduleSpecifier: 'aws-cdk-lib/aws-stepfunctions',
-            });
-        }
-        if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'node:path')) {
-            sourceFile.addImportDeclaration({
-                namespaceImport: 'path',
-                moduleSpecifier: 'node:path',
             });
         }
     }

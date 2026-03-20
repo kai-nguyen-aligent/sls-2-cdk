@@ -161,7 +161,7 @@ export interface CdkMapping {
     /**
      * Per-property transformation functions applied before serialisation.
      * Keys are CloudFormation property names (PascalCase). Return a `RawTs`
-     * instance to emit a verbatim TypeScript expression (e.g. `Duration.seconds(90)`).
+     * instance to emit a verbatim TypeScript expression (e.g. `cdk.Duration.seconds(90)`).
      * Only applied when the property is present; non-numeric values should be passed through.
      */
     propTransforms?: Map<string, (value: unknown) => unknown>;

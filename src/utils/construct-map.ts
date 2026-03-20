@@ -31,7 +31,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'FunctionName',
         omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role']),
         propTransforms: new Map([
-            ['Timeout', v => (typeof v === 'number' ? new RawTs(`Duration.seconds(${v})`) : v)],
+            ['Timeout', v => (typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v)],
             [
                 'Environment',
                 v =>
@@ -83,7 +83,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         propTransforms: new Map([
             [
                 'StateMachineType',
-                v => (typeof v === 'string' ? new RawTs(`StateMachineType.${v}`) : v),
+                v => (typeof v === 'string' ? new RawTs(`sfn.StateMachineType.${v}`) : v),
             ],
         ]),
     },
