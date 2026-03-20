@@ -169,53 +169,49 @@ function buildStateMachineStatement(
     const propLines: string[] = [];
 
     if (entry.properties['StateMachineName'] !== undefined) {
-        propLines.push(`    stateMachineName: ${valueToTs(entry.properties['StateMachineName'])},`);
+        propLines.push(`stateMachineName: ${valueToTs(entry.properties['StateMachineName'])},`);
     }
     if (entry.properties['StateMachineType'] !== undefined) {
-        propLines.push(`    stateMachineType: ${valueToTs(entry.properties['StateMachineType'])},`);
+        propLines.push(`stateMachineType: ${valueToTs(entry.properties['StateMachineType'])},`);
     }
 
     const tracingConfig = entry.properties['TracingConfiguration'];
     if (tracingConfig && typeof tracingConfig === 'object') {
         const enabled = (tracingConfig as Record<string, unknown>)['Enabled'];
         if (enabled !== undefined) {
-            propLines.push(`    tracingEnabled: ${valueToTs(enabled)},`);
+            propLines.push(`tracingEnabled: ${valueToTs(enabled)},`);
         }
     }
 
     if (definitionInfo) {
         const sourceDir = path.dirname(sourceFilePath);
         const relYamlPath = path.relative(sourceDir, definitionInfo.yamlPath).replace(/\\/g, '/');
-        propLines.push(`    filepath: path.join(__dirname, '${relYamlPath}'),`);
+        propLines.push(`filepath: '${relYamlPath}',`);
 
         const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
         if (lambdaSubs.length > 0) {
             const lambdaEntries = lambdaSubs.map(s => `        ${s.cdkVarName},`).join('\n');
-            propLines.push(`    lambdaFunctions: [\n${lambdaEntries}\n    ],`);
+            propLines.push(`lambdaFunctions: [\n${lambdaEntries}\n],`);
         }
 
         const nonLambdaSubs = definitionInfo.substitutions.filter(s => !s.isLambda);
         if (nonLambdaSubs.length > 0) {
             const subEntries = nonLambdaSubs
-                .map(
-                    s =>
-                        `        ${s.cdkVarName}: '', ` +
-                        `// TODO: replace with correct CDK expression`
-                )
+                .map(s => `${s.cdkVarName}: '', ` + `// TODO: replace with correct CDK expression`)
                 .join('\n');
-            propLines.push(`    definitionSubstitutions: {\n${subEntries}\n    },`);
+            propLines.push(`definitionSubstitutions: {\n${subEntries}\n    },`);
         }
     } else {
         propLines.push(
-            `    // TODO: DefinitionString was not Fn::Sub — provide definitionFileName manually`
+            `// TODO: DefinitionString was not Fn::Sub — provide definitionFileName manually`
         );
-        propLines.push(`    definitionFileName: '',`);
+        propLines.push(`definitionFileName: '',`);
     }
 
     const handledKeys = new Set(['StateMachineName', 'StateMachineType', 'TracingConfiguration']);
     for (const [k, v] of Object.entries(entry.properties)) {
         if (!handledKeys.has(k)) {
-            propLines.push(`    // TODO: ${k}: ${valueToTs(v)},`);
+            propLines.push(`// TODO: ${k}: ${valueToTs(v)},`);
         }
     }
 
@@ -321,7 +317,10 @@ function applyToSourceFile(
                 typeof props['Environment'] === 'object'
             ) {
                 const envVars = props['Environment'] as Record<string, unknown>;
-                props = { ...props, Environment: new RawTs(buildLambdaEnvTs(envVars, commonEnvKeys)) };
+                props = {
+                    ...props,
+                    Environment: new RawTs(buildLambdaEnvTs(envVars, commonEnvKeys)),
+                };
             }
             constructStatement =
                 `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +

@@ -154,9 +154,9 @@ function updateConstructor(stackClass: ClassDeclaration, params: SsmParameter[])
             [
                 `// SSM: ${param.expression}`,
                 `this.${param.varName} = StringParameter.fromStringParameterName(`,
-                `    this,`,
-                `    '${param.cdkId}',`,
-                `    '${param.ssmPath}',`,
+                `this,`,
+                `'${param.cdkId}',`,
+                `'${param.ssmPath}',`,
                 `);`,
             ].join('\n')
         );
@@ -181,7 +181,7 @@ function updateGetProps(stackClass: ClassDeclaration, params: SsmParameter[]): v
     const closingIdx = returnText.lastIndexOf('};');
     if (closingIdx === -1) return;
 
-    const newEntries = toAdd.map(p => `    ${p.varName}: this.${p.varName},`).join('\n');
+    const newEntries = toAdd.map(p => `${p.varName}: this.${p.varName},`).join('\n');
     returnStmt.replaceWithText(returnText.slice(0, closingIdx) + newEntries + '\n};');
 }
 
