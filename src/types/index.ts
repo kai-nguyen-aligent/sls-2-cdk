@@ -182,6 +182,21 @@ export interface CdkIdMapping {
     cdkId: string;
 }
 
+export interface ResourceEntry {
+    /** CloudFormation logical ID of the resource (e.g. `MyLambdaFunction`). */
+    logicalId: CdkIdMapping;
+    /** CloudFormation resource type (e.g. `AWS::Lambda::Function`). */
+    cfnType: string;
+    /** Resolved CDK L2 construct mapping for this resource type. */
+    mapping: CdkMapping;
+    /** Raw CloudFormation resource properties, keyed as they appear in the template. */
+    properties: Record<string, unknown>;
+    /** Logical IDs this resource explicitly depends on, if any. */
+    dependsOn?: string[] | undefined;
+    /** Name of the CloudFormation condition that gates this resource, if any. */
+    condition?: string | undefined;
+}
+
 export interface GeneratedResource {
     logicalId: string;
     cfnType: string;

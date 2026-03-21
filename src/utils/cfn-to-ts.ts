@@ -1,3 +1,5 @@
+import { SLS_LOGICAL_ID_SUFFIXES } from './construct-map.js';
+
 /** Wraps a TypeScript expression that should be emitted verbatim without quoting. */
 export class RawTs {
     constructor(public readonly code: string) {}
@@ -43,6 +45,20 @@ export function pascalToCamel(str: string): string {
     if (i === 1) return str[0]!.toLowerCase() + str.slice(1);
     if (i >= str.length) return str.toLowerCase();
     return str.slice(0, i - 1).toLowerCase() + str.slice(i - 1);
+}
+
+/**
+ * Derives a CDK construct ID from a CloudFormation logical ID by stripping
+ * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`).
+ */
+export function generateCdkId(logicalId: string): string {
+    const sanitized = logicalId.replace(/Dash|Underscore/g, '');
+    for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
+        if (sanitized.endsWith(suffix) && sanitized.length > suffix.length) {
+            return sanitized.slice(0, -suffix.length);
+        }
+    }
+    return sanitized;
 }
 
 /**
