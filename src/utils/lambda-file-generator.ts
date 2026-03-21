@@ -119,12 +119,15 @@ export function generateLambdaFunctionsFile(
     // --- lambdaFunctions function ---
     let fn = sourceFile.getFunction('lambdaFunctions');
     if (!fn) {
+        const vpcConfigType =
+            '{ vpc?: ec2.IVpc; vpcSubnets?: ec2.SubnetSelection; securityGroups?: ec2.ISecurityGroup[] }';
         fn = sourceFile.addFunction({
             isExported: true,
             name: 'lambdaFunctions',
             parameters: [
                 { name: 'scope', type: 'Construct' },
                 { name: 'props', type: 'SharedInfraProps' },
+                ...(hasVpc ? [{ name: 'vpcConfig', type: vpcConfigType }] : []),
             ],
         });
     }
@@ -137,15 +140,6 @@ export function generateLambdaFunctionsFile(
             .map(v => `${v.name}: ${resolveEnvValueForFile(v.value, ssmPlaceholderMap)}`)
             .join(', ');
         fn.addStatements(`const sharedEnv = { ${envProps} };`);
-    }
-
-    // vpcConfig declaration
-    if (hasVpc && !existingFnBody.includes('vpcConfig')) {
-        const { vpc, vpcSubnets, securityGroups } = lambdaEntries.find(
-            e => 'vpc' in e.properties
-        )!.properties;
-        const vpcTs = valueToTs({ vpc, vpcSubnets, securityGroups }).replace(/\bthis\b/g, 'scope');
-        fn.addStatements(`const vpcConfig = ${vpcTs};`);
     }
 
     // Lambda instantiations

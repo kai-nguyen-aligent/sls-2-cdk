@@ -18,16 +18,12 @@ import {
 } from '../utils/lambda-file-generator.js';
 import { buildStateMachineStatement, resolveResources } from '../utils/resource-processor.js';
 
-function applyToSourceFile(
+function ensureImports(
     sourceFile: SourceFile,
     entries: ResourceEntry[],
     moduleAliases: Map<string, string>,
-    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
-    sharedEnvVars: EnvVarEntry[],
-    ssmPlaceholderMap: Map<string, string>,
     lambdaEntries: ResourceEntry[]
 ): void {
-    // Ensure base imports exist
     if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'constructs')) {
         sourceFile.addImportDeclaration({
             namedImports: ['Construct'],
@@ -55,32 +51,27 @@ function applyToSourceFile(
         }
     }
 
-    const vpcEntries = entries.filter(e => 'vpc' in e.properties);
-    if (vpcEntries.length > 0) {
-        if (
-            !sourceFile.getImportDeclaration(
-                d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-ec2'
-            )
-        ) {
-            sourceFile.addImportDeclaration({
-                namespaceImport: 'ec2',
-                moduleSpecifier: 'aws-cdk-lib/aws-ec2',
-            });
-        }
+    const hasVpc = entries.some(e => 'vpc' in e.properties);
+    if (
+        hasVpc &&
+        !sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-ec2')
+    ) {
+        sourceFile.addImportDeclaration({
+            namespaceImport: 'ec2',
+            moduleSpecifier: 'aws-cdk-lib/aws-ec2',
+        });
     }
 
-    const hasStateMachines = moduleAliases.has('@aligent/cdk-step-function-from-file');
-    if (hasStateMachines) {
-        if (
-            !sourceFile.getImportDeclaration(
-                d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-stepfunctions'
-            )
-        ) {
-            sourceFile.addImportDeclaration({
-                namespaceImport: 'sfn',
-                moduleSpecifier: 'aws-cdk-lib/aws-stepfunctions',
-            });
-        }
+    if (
+        moduleAliases.has('@aligent/cdk-step-function-from-file') &&
+        !sourceFile.getImportDeclaration(
+            d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-stepfunctions'
+        )
+    ) {
+        sourceFile.addImportDeclaration({
+            namespaceImport: 'sfn',
+            moduleSpecifier: 'aws-cdk-lib/aws-stepfunctions',
+        });
     }
 
     if (
@@ -94,6 +85,18 @@ function applyToSourceFile(
             moduleSpecifier: './infra/lambda-functions.js',
         });
     }
+}
+
+function applyToSourceFile(
+    sourceFile: SourceFile,
+    entries: ResourceEntry[],
+    moduleAliases: Map<string, string>,
+    stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
+    sharedEnvVars: EnvVarEntry[],
+    ssmPlaceholderMap: Map<string, string>,
+    lambdaEntries: ResourceEntry[]
+): void {
+    ensureImports(sourceFile, entries, moduleAliases, lambdaEntries);
 
     // Resolve class: by name if provided, otherwise fall back to the first class in the file
     const classDecl = sourceFile.getClasses()[0];
@@ -116,6 +119,7 @@ function applyToSourceFile(
         ctor.addStatements(`const sharedEnv = { ${envProps} };`);
     }
 
+    const vpcEntries = entries.filter(e => 'vpc' in e.properties);
     if (vpcEntries.length > 0 && !existingBody.includes('vpcConfig')) {
         const { vpc, vpcSubnets, securityGroups } = vpcEntries[0]!.properties;
         ctor.addStatements(`const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups })};`);
@@ -123,7 +127,9 @@ function applyToSourceFile(
 
     if (lambdaEntries.length > 0 && !existingBody.includes('lambdaFunctions(')) {
         const lambdaVarNames = lambdaEntries.map(e => pascalToCamel(e.logicalId.cdkId));
-        const callStmt = `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props!);`;
+        const hasLambdaVpc = lambdaEntries.some(e => 'vpc' in e.properties);
+        const vpcArg = hasLambdaVpc ? ', vpcConfig' : '';
+        const callStmt = `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props!${vpcArg});`;
         ctor.addStatements(callStmt);
     }
 
@@ -209,15 +215,6 @@ export function generateConstructs(
     const { entries, generated, skipped } = resolveResources(template, keepNames);
 
     const lambdaEntries = entries.filter(e => e.cfnType === 'AWS::Lambda::Function');
-    const nonLambdaEntries = entries.filter(e => e.cfnType !== 'AWS::Lambda::Function');
-
-    // Module aliases only for non-lambda constructs (lambdas go to their own file)
-    const nonLambdaModuleAliases = new Map<string, string>();
-    for (const entry of nonLambdaEntries) {
-        if (!nonLambdaModuleAliases.has(entry.mapping.cdkModule)) {
-            nonLambdaModuleAliases.set(entry.mapping.cdkModule, entry.mapping.importAlias);
-        }
-    }
 
     const commonEnvKeys = new Set(sharedEnvVars.map(v => v.name));
     generateLambdaFunctionsFile(
@@ -227,6 +224,16 @@ export function generateConstructs(
         ssmPlaceholderMap,
         destinationServicePath
     );
+
+    const nonLambdaEntries = entries.filter(e => e.cfnType !== 'AWS::Lambda::Function');
+
+    // Module aliases only for non-lambda constructs (lambdas go to their own file)
+    const nonLambdaModuleAliases = new Map<string, string>();
+    for (const entry of nonLambdaEntries) {
+        if (!nonLambdaModuleAliases.has(entry.mapping.cdkModule)) {
+            nonLambdaModuleAliases.set(entry.mapping.cdkModule, entry.mapping.importAlias);
+        }
+    }
 
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);
