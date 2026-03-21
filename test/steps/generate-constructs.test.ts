@@ -37,6 +37,11 @@ afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** Reads the generated infra/lambda-functions.ts file. */
+function readLambdaFunctionsFile(): string {
+    return fs.readFileSync(path.join(tmpDir, 'src', 'infra', 'lambda-functions.ts'), 'utf-8');
+}
+
 describe('generateConstructs', () => {
     it('should generate a NodejsFunction for AWS::Lambda::Function', () => {
         const template: CloudFormationTemplate = {
@@ -57,11 +62,19 @@ describe('generateConstructs', () => {
         expect(result.generated[0]!.logicalId).toBe('MyFunc');
         expect(result.generated[0]!.cdkClass).toBe('lambdaNodejs.NodejsFunction');
 
+        // Lambda construct lives in infra/lambda-functions.ts
+        const lambdaContent = readLambdaFunctionsFile();
+        expect(lambdaContent).toContain(
+            'import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs"'
+        );
+        expect(lambdaContent).toContain("new NodejsFunction(scope, 'MyFunc'");
+        expect(lambdaContent).toContain("functionName: 'my-func'");
+        expect(lambdaContent).toContain('memorySize: 192');
+
+        // index.ts delegates to lambdaFunctions()
         const content = fs.readFileSync(result.outputPath, 'utf-8');
-        expect(content).toContain('import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs"');
-        expect(content).toContain("new lambdaNodejs.NodejsFunction(this, 'MyFunc'");
-        expect(content).toContain("functionName: 'my-func'");
-        expect(content).toContain('memorySize: 192');
+        expect(content).toContain('import { lambdaFunctions }');
+        expect(content).toContain('lambdaFunctions(this, props!)');
     });
 
     it('should generate constructs for multiple resource types', () => {
@@ -86,13 +99,20 @@ describe('generateConstructs', () => {
         expect(result.generatedCount).toBe(3);
         expect(result.skippedCount).toBe(0);
 
+        // Lambda in its own file
+        const lambdaContent = readLambdaFunctionsFile();
+        expect(lambdaContent).toContain(
+            'import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs"'
+        );
+        expect(lambdaContent).toContain('new NodejsFunction');
+
+        // Non-lambda constructs remain in index.ts
         const content = fs.readFileSync(result.outputPath, 'utf-8');
-        expect(content).toContain('import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs"');
         expect(content).toContain('import * as dynamodb from "aws-cdk-lib/aws-dynamodb"');
         expect(content).toContain('import * as s3 from "aws-cdk-lib/aws-s3"');
-        expect(content).toContain('new lambdaNodejs.NodejsFunction');
         expect(content).toContain('new dynamodb.Table');
         expect(content).toContain('new s3.Bucket');
+        expect(content).toContain('lambdaFunctions(this, props!)');
     });
 
     it('should skip Custom:: resource types', () => {
@@ -141,10 +161,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain("cdk.Fn.ref('MyTable')");
+        expect(lambdaContent).toContain("cdk.Fn.ref('MyTable')");
     });
 
     it('should convert Fn::GetAtt intrinsic to Fn.getAtt', () => {
@@ -179,10 +199,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain("cdk.Fn.sub('https://${AWS::StackName}.example.com')");
+        expect(lambdaContent).toContain("cdk.Fn.sub('https://${AWS::StackName}.example.com')");
     });
 
     it('should map AWS pseudo-parameters to Aws constants', () => {
@@ -201,11 +221,11 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain('cdk.Aws.REGION');
-        expect(content).toContain('cdk.Aws.ACCOUNT_ID');
+        expect(lambdaContent).toContain('cdk.Aws.REGION');
+        expect(lambdaContent).toContain('cdk.Aws.ACCOUNT_ID');
     });
 
     it('should convert PascalCase property keys to camelCase', () => {
@@ -246,11 +266,11 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain("DB_HOST: 'localhost'");
-        expect(content).toContain("STAGE: 'dev'");
+        expect(lambdaContent).toContain("DB_HOST: 'localhost'");
+        expect(lambdaContent).toContain("STAGE: 'dev'");
     });
 
     it('should handle empty Resources', () => {
@@ -289,10 +309,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain('// DependsOn: MyRole, MyLogGroup');
+        expect(lambdaContent).toContain('// DependsOn: MyRole, MyLogGroup');
     });
 
     it('should add Condition as a comment', () => {
@@ -305,10 +325,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain('// Condition: IsProd');
+        expect(lambdaContent).toContain('// Condition: IsProd');
     });
 
     it('should deduplicate module imports for same-module resources', () => {
@@ -334,10 +354,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain('// TODO: Review and adjust properties for NodejsFunction');
+        expect(lambdaContent).toContain('// TODO: Review and adjust properties for NodejsFunction');
     });
 
     it('should write output file to src/index.ts in the destination', () => {
@@ -355,7 +375,7 @@ describe('generateConstructs', () => {
         expect(fs.existsSync(result.outputPath)).toBe(true);
     });
 
-    it('should extract common env vars into a sharedEnv constant', () => {
+    it('should extract common env vars into a sharedEnv constant in lambda-functions.ts', () => {
         const template: CloudFormationTemplate = {
             Resources: {
                 FuncA: {
@@ -380,18 +400,18 @@ describe('generateConstructs', () => {
             makeSharedEnvVar('STAGE', 'prod'),
             makeSharedEnvVar('BRAND', 'acme'),
         ];
-        const result = generateConstructs(template, false, tmpDir, {}, sharedEnvVars);
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {}, sharedEnvVars);
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).toContain("const sharedEnv = { STAGE: 'prod', BRAND: 'acme' }");
-        expect(content).toContain('...sharedEnv');
-        expect(content).toContain("UNIQUE_A: 'only-in-a'");
-        expect(content).toContain("UNIQUE_B: 'only-in-b'");
+        expect(lambdaContent).toContain("const sharedEnv = { STAGE: 'prod', BRAND: 'acme' }");
+        expect(lambdaContent).toContain('...sharedEnv');
+        expect(lambdaContent).toContain("UNIQUE_A: 'only-in-a'");
+        expect(lambdaContent).toContain("UNIQUE_B: 'only-in-b'");
         // Common vars should not be inlined per-lambda
-        expect(content).not.toMatch(/STAGE: 'prod'.*UNIQUE/);
+        expect(lambdaContent).not.toMatch(/STAGE: 'prod'.*UNIQUE/);
     });
 
-    it('should not add sharedEnv when fewer than 2 lambdas share env vars', () => {
+    it('should not add sharedEnv when no shared env vars are provided', () => {
         const template: CloudFormationTemplate = {
             Resources: {
                 MyFunc: {
@@ -402,10 +422,10 @@ describe('generateConstructs', () => {
                 },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {}, []);
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {}, []);
+        const lambdaContent = readLambdaFunctionsFile();
 
-        expect(content).not.toContain('sharedEnv');
-        expect(content).toContain("STAGE: 'prod'");
+        expect(lambdaContent).not.toContain('sharedEnv');
+        expect(lambdaContent).toContain("STAGE: 'prod'");
     });
 });
