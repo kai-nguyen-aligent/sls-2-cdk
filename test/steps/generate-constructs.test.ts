@@ -237,6 +237,7 @@ describe('generateConstructs', () => {
                         TableName: 'test',
                         BillingMode: 'PAY_PER_REQUEST',
                         AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' }],
+                        KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' }],
                     },
                 },
             },
@@ -246,8 +247,8 @@ describe('generateConstructs', () => {
 
         expect(content).toContain("tableName: 'test'");
         expect(content).toContain("billingMode: 'PAY_PER_REQUEST'");
-        expect(content).toContain("attributeName: 'id'");
-        expect(content).toContain("attributeType: 'S'");
+        expect(content).toContain("name: 'id'");
+        expect(content).toContain('dynamodb.AttributeType.STRING');
     });
 
     it('should preserve ALL_CAPS keys (e.g., env var names)', () => {

@@ -166,11 +166,11 @@ export function generateLambdaFunctionsFile(
         comments.push(`// TODO: Review and adjust properties for NodejsFunction`);
 
         let props = entry.properties;
-        if (props['Environment'] && typeof props['Environment'] === 'object') {
-            const envVars = props['Environment'] as Record<string, unknown>;
+        if (props['environment'] && typeof props['environment'] === 'object') {
+            const envVars = props['environment'] as Record<string, unknown>;
             props = {
                 ...props,
-                Environment: new RawTs(
+                environment: new RawTs(
                     buildLambdaEnvForFile(envVars, commonEnvKeys, ssmPlaceholderMap)
                 ),
             };

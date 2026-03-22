@@ -30,17 +30,25 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'NodejsFunction',
         cfnNameProp: 'FunctionName',
         omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role', 'TracingConfig']),
-        propTransforms: new Map([
-            ['Timeout', v => (typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v)],
+        propExpansions: new Map<
+            string,
+            (v: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+        >([
+            [
+                'Timeout',
+                v => ({
+                    timeout: typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v,
+                }),
+            ],
             [
                 'Environment',
-                v =>
-                    v && typeof v === 'object' && 'Variables' in (v as Record<string, unknown>)
-                        ? (v as Record<string, unknown>)['Variables']
-                        : v,
+                v => ({
+                    environment:
+                        v && typeof v === 'object' && 'Variables' in (v as Record<string, unknown>)
+                            ? (v as Record<string, unknown>)['Variables']
+                            : v,
+                }),
             ],
-        ]),
-        propExpansions: new Map([
             [
                 'VpcConfig',
                 v => {
@@ -179,10 +187,13 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'StepFunctionFromFile',
         cfnNameProp: 'StateMachineName',
         omitProps: new Set(['DefinitionString', 'LoggingConfiguration', 'RoleArn']),
-        propTransforms: new Map([
+        propExpansions: new Map([
             [
                 'StateMachineType',
-                v => (typeof v === 'string' ? new RawTs(`sfn.StateMachineType.${v}`) : v),
+                v => ({
+                    stateMachineType:
+                        typeof v === 'string' ? new RawTs(`sfn.StateMachineType.${v}`) : v,
+                }),
             ],
         ]),
     },

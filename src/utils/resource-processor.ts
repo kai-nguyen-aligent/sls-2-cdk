@@ -41,14 +41,6 @@ function processProperties(
         delete result[key];
     }
 
-    if (mapping.propTransforms) {
-        for (const [key, transform] of mapping.propTransforms) {
-            if (key in result) {
-                result[key] = transform(result[key]);
-            }
-        }
-    }
-
     if (mapping.propExpansions) {
         for (const [key, expand] of mapping.propExpansions) {
             if (key in result) {
@@ -139,9 +131,6 @@ export function buildStateMachineStatement(
     if (entry.properties['StateMachineName'] !== undefined) {
         propLines.push(`stateMachineName: ${valueToTs(entry.properties['StateMachineName'])},`);
     }
-    if (entry.properties['StateMachineType'] !== undefined) {
-        propLines.push(`stateMachineType: ${valueToTs(entry.properties['StateMachineType'])},`);
-    }
 
     const tracingConfig = entry.properties['TracingConfiguration'];
     if (tracingConfig && typeof tracingConfig === 'object') {
@@ -176,7 +165,7 @@ export function buildStateMachineStatement(
         propLines.push(`definitionFileName: '',`);
     }
 
-    const handledKeys = new Set(['StateMachineName', 'StateMachineType', 'TracingConfiguration']);
+    const handledKeys = new Set(['StateMachineName', 'TracingConfiguration']);
     for (const [k, v] of Object.entries(entry.properties)) {
         if (!handledKeys.has(k)) {
             propLines.push(`// TODO: ${k}: ${valueToTs(v)},`);
