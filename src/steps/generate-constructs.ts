@@ -89,14 +89,14 @@ function ensureImports(
 
 function applyToSourceFile(
     sourceFile: SourceFile,
-    entries: ResourceEntry[],
+    nonLambdaEntries: ResourceEntry[],
     moduleAliases: Map<string, string>,
     stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
     sharedEnvVars: EnvVarEntry[],
     ssmPlaceholderMap: Map<string, string>,
     lambdaEntries: ResourceEntry[]
 ): void {
-    ensureImports(sourceFile, entries, moduleAliases, lambdaEntries);
+    ensureImports(sourceFile, nonLambdaEntries, moduleAliases, lambdaEntries);
 
     // Resolve class: by name if provided, otherwise fall back to the first class in the file
     const classDecl = sourceFile.getClasses()[0];
@@ -119,21 +119,20 @@ function applyToSourceFile(
         ctor.addStatements(`const sharedEnv = { ${envProps} };`);
     }
 
-    const vpcEntries = entries.filter(e => 'vpc' in e.properties);
-    if (vpcEntries.length > 0 && !existingBody.includes('vpcConfig')) {
-        const { vpc, vpcSubnets, securityGroups } = vpcEntries[0]!.properties;
+    const nonLambdaVpcEntries = nonLambdaEntries.filter(e => 'vpc' in e.properties);
+    if (nonLambdaVpcEntries.length && !existingBody.includes('vpcConfig')) {
+        const { vpc, vpcSubnets, securityGroups } = nonLambdaVpcEntries[0]!.properties;
         ctor.addStatements(`const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups })};`);
     }
 
     if (lambdaEntries.length > 0 && !existingBody.includes('lambdaFunctions(')) {
         const lambdaVarNames = lambdaEntries.map(e => pascalToCamel(e.logicalId.cdkId));
-        const hasLambdaVpc = lambdaEntries.some(e => 'vpc' in e.properties);
-        const vpcArg = hasLambdaVpc ? ', vpcConfig' : '';
-        const callStmt = `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props!${vpcArg});`;
-        ctor.addStatements(callStmt);
+        ctor.addStatements(
+            `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props!);`
+        );
     }
 
-    for (const entry of entries) {
+    for (const entry of nonLambdaEntries) {
         const { cdkId, cfnLogicalId } = entry.logicalId;
         if (existingBody.includes(`'${cdkId}'`)) continue;
 

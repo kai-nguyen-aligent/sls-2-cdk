@@ -4,12 +4,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
-import { extractStateMachineDefinitions } from '../steps/extract-state-machine-definitions.js';
 import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { updateSharedStack } from '../steps/update-shared-stack.js';
+import { extractStateMachineDefinitions } from '../utils/extract-state-machine-definitions.js';
 import { cleanupSubFiles, writeStepOutput } from '../utils/file-io.js';
 import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 

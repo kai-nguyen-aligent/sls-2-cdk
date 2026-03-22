@@ -9,8 +9,7 @@ import type {
     StateMachineDefinitionInfo,
     StateMachineSubstitution,
 } from '../types/index.js';
-import { pascalToCamel } from '../utils/cfn-to-ts.js';
-import { generateCdkId } from './generate-constructs.js';
+import { generateCdkId, pascalToCamel } from './cfn-to-ts.js';
 
 /**
  * Derives a filesystem-safe YAML filename from a CloudFormation StateMachine resource.
