@@ -167,12 +167,18 @@ export interface CdkMapping {
     propTransforms?: Map<string, (value: unknown) => unknown>;
     /**
      * One-to-many property expansions applied before serialisation.
-     * Keys are CloudFormation property names (PascalCase). The function returns a
-     * record of CDK property names (camelCase) to their values, which are merged into
-     * the props object. The original key is deleted.
-     * Use this when a single CFN property maps to multiple CDK construct props.
+     * Keys are CloudFormation property names (PascalCase). The function receives the
+     * property value and the full (mutable) props object, and returns a record of CDK
+     * property names (camelCase) to their values, which are merged into the props object.
+     * The original key is deleted after the expansion runs.
+     * Use this when a single CFN property maps to multiple CDK construct props, or when
+     * the expansion needs to read/remove sibling properties (e.g. combining two CFN props
+     * into one CDK prop).
      */
-    propExpansions?: Map<string, (value: unknown) => Record<string, unknown>>;
+    propExpansions?: Map<
+        string,
+        (value: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+    >;
 }
 
 export interface CdkIdMapping {

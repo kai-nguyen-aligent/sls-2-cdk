@@ -79,6 +79,16 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'EventSourceMapping',
         cfnNameProp: '',
         omitProps: new Set(),
+        propExpansions: new Map([
+            [
+                'FunctionName',
+                v => ({
+                    target: new RawTs(
+                        `lambda.Function.fromFunctionName(this, 'Target', ${valueToTs(v)})`
+                    ),
+                }),
+            ],
+        ]),
     },
     'AWS::Lambda::LayerVersion': {
         cdkModule: 'aws-cdk-lib/aws-lambda',
@@ -86,6 +96,32 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'LayerVersion',
         cfnNameProp: 'LayerName',
         omitProps: new Set(),
+        propExpansions: new Map([
+            [
+                'Content',
+                v => {
+                    const content = (v ?? {}) as {
+                        S3Bucket?: unknown;
+                        S3Key?: unknown;
+                        S3ObjectVersion?: unknown;
+                    };
+                    if (content.S3Bucket && content.S3Key) {
+                        const bucket = `s3.Bucket.fromBucketName(this, 'ContentBucket', ${valueToTs(content.S3Bucket)})`;
+                        const objectVersion = content.S3ObjectVersion
+                            ? `, ${valueToTs(content.S3ObjectVersion)}`
+                            : '';
+                        return {
+                            code: new RawTs(
+                                `lambda.Code.fromBucket(${bucket}, ${valueToTs(content.S3Key)}${objectVersion})`
+                            ),
+                        };
+                    }
+                    return {
+                        code: new RawTs(`lambda.Code.fromAsset('TODO: specify layer code path')`),
+                    };
+                },
+            ],
+        ]),
     },
 
     // DynamoDB
@@ -95,6 +131,37 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Table',
         cfnNameProp: 'TableName',
         omitProps: new Set(),
+        propExpansions: new Map([
+            [
+                'AttributeDefinitions',
+                (attrDefs, allProps) => {
+                    // Build a lookup from attribute name to DynamoDB type (S/N/B)
+                    const defs = (attrDefs ?? []) as Array<{
+                        AttributeName: string;
+                        AttributeType: string;
+                    }>;
+                    const typeMap = new Map(defs.map(d => [d.AttributeName, d.AttributeType]));
+
+                    // KeySchema identifies HASH (partition) and RANGE (sort) keys
+                    const keySchema = (allProps['KeySchema'] ?? []) as Array<{
+                        AttributeName: string;
+                        KeyType: 'HASH' | 'RANGE';
+                    }>;
+                    delete allProps['KeySchema'];
+
+                    const result: Record<string, unknown> = {};
+                    for (const key of keySchema) {
+                        const attrType = typeMap.get(key.AttributeName) ?? 'S';
+                        const cdkAttrType =
+                            attrType === 'N' ? 'NUMBER' : attrType === 'B' ? 'BINARY' : 'STRING';
+                        const cdkType = new RawTs(`dynamodb.AttributeType.${cdkAttrType}`);
+                        const prop = key.KeyType === 'HASH' ? 'partitionKey' : 'sortKey';
+                        result[prop] = { name: key.AttributeName, type: cdkType };
+                    }
+                    return result;
+                },
+            ],
+        ]),
     },
 
     // S3
@@ -128,7 +195,22 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         omitProps: new Set(),
     },
-    // TODO: ApiKey, UsagePlan
+    'AWS::ApiGateway::ApiKey': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        className: 'ApiKey',
+        cfnNameProp: 'Name',
+        // StageKeys is deprecated in favour of UsagePlan.stages
+        omitProps: new Set(['StageKeys']),
+    },
+    'AWS::ApiGateway::UsagePlan': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        className: 'UsagePlan',
+        cfnNameProp: 'UsagePlanName',
+        // ApiStages references IRestApi/Stage constructs — add via addApiStage() after construction
+        omitProps: new Set(['ApiStages']),
+    },
 
     // IAM
     // 'AWS::IAM::Role': {
@@ -172,14 +254,24 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'sns',
         className: 'Topic',
         cfnNameProp: 'TopicName',
-        omitProps: new Set(),
+        // Subscriptions are added via topic.addSubscription() — they should be separate AWS::SNS::Subscription resources
+        omitProps: new Set(['Subscription']),
     },
     'AWS::SNS::Subscription': {
-        cdkModule: 'aws-cdk-lib/aws-sns-subscriptions',
-        importAlias: 'snsSubscriptions',
+        cdkModule: 'aws-cdk-lib/aws-sns',
+        importAlias: 'sns',
         className: 'Subscription',
         cfnNameProp: '',
-        omitProps: new Set(),
+        // RedrivePolicy is replaced by deadLetterQueue: IQueue construct reference in L2
+        omitProps: new Set(['RedrivePolicy']),
+        propExpansions: new Map([
+            [
+                'TopicArn',
+                v => ({
+                    topic: new RawTs(`sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v)})`),
+                }),
+            ],
+        ]),
     },
 
     // Events
@@ -188,9 +280,9 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'events',
         className: 'Rule',
         cfnNameProp: 'Name',
-        omitProps: new Set(),
+        // Targets require IRuleTarget instances (e.g. LambdaFunction, SfnStateMachine) — add via rule.addTarget()
+        omitProps: new Set(['Targets']),
     },
-    // TODO: className: 'Schedule'
 
     // CloudWatch
     'AWS::CloudWatch::Alarm': {

@@ -52,7 +52,7 @@ function processProperties(
     if (mapping.propExpansions) {
         for (const [key, expand] of mapping.propExpansions) {
             if (key in result) {
-                Object.assign(result, expand(result[key]));
+                Object.assign(result, expand(result[key], result));
                 delete result[key];
             }
         }

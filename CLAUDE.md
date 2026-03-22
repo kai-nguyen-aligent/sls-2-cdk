@@ -49,17 +49,24 @@ bin/
 
 ## Coding Conventions
 
-- **ESM imports** with `.js` extensions: `import { foo } from './bar.js'`
-- **Node builtins** use `node:` prefix: `import * as fs from 'node:fs'`
-- **Type-only imports**: `import type { Foo } from '../types/index.js'`
-- **File names**: kebab-case (`build-env-map.ts`)
 - **Classes**: PascalCase; **Functions**: camelCase; **Constants**: UPPER_SNAKE_CASE
 - **Indentation**: 4 spaces (2 for YAML/JSON/Markdown)
 - **Line length**: 100 characters max
 - **Line endings**: LF, with final newline
-- Types are centralized in `src/types/index.ts`
 - Each step module exports focused pure functions
 - Step outputs are wrapped in `StepOutput<T>` with timing/error tracking
+
+### TypeScript conventions
+
+- **ESM imports** with `.js` extensions: `import { foo } from './bar.js'`
+- **Node builtins** use `node:` prefix: `import * as fs from 'node:fs'`
+- **Type-only imports**: `import type { Foo } from '../types/index.js'`
+- **File names**: kebab-case (`build-env-map.ts`)
+- Strict mode everywhere, no `any` escape hatches
+- Prefer `satisfies` over `as` for type narrowing
+- Barrel exports only at package boundaries, not within packages
+- Types are centralized in `src/types/index.ts`
+- CDK constructs use interface props, not inline objects
 
 ## Testing
 
