@@ -187,12 +187,18 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'StepFunctionFromFile',
         cfnNameProp: 'StateMachineName',
         omitProps: new Set(['DefinitionString', 'LoggingConfiguration', 'RoleArn']),
-        propExpansions: new Map([
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [
                 'StateMachineType',
                 v => ({
                     stateMachineType:
                         typeof v === 'string' ? new RawTs(`sfn.StateMachineType.${v}`) : v,
+                }),
+            ],
+            [
+                'TracingConfiguration',
+                v => ({
+                    tracingEnabled: (v as Record<string, unknown>)?.['Enabled'],
                 }),
             ],
         ]),

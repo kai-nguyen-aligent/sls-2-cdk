@@ -8,7 +8,7 @@ import type {
     SkippedResource,
     StateMachineDefinitionInfo,
 } from '../types/index.js';
-import { generateCdkId, pascalToCamel, valueToTs } from './cfn-to-ts.js';
+import { generateCdkId, pascalToCamel, RawTs, valueToTs } from './cfn-to-ts.js';
 import { CFN_TO_CDK, IGNORE_LOGICAL_IDS } from './construct-map.js';
 
 interface ResolvedResources {
@@ -126,29 +126,18 @@ export function buildStateMachineStatement(
 ): string {
     const { cdkId } = entry.logicalId;
     const varName = pascalToCamel(cdkId);
-    const propLines: string[] = [];
 
-    if (entry.properties['StateMachineName'] !== undefined) {
-        propLines.push(`stateMachineName: ${valueToTs(entry.properties['StateMachineName'])},`);
-    }
-
-    const tracingConfig = entry.properties['TracingConfiguration'];
-    if (tracingConfig && typeof tracingConfig === 'object') {
-        const enabled = (tracingConfig as Record<string, unknown>)['Enabled'];
-        if (enabled !== undefined) {
-            propLines.push(`tracingEnabled: ${valueToTs(enabled)},`);
-        }
-    }
+    const props = { ...entry.properties };
 
     if (definitionInfo) {
         const sourceDir = path.dirname(sourceFilePath);
         const relYamlPath = path.relative(sourceDir, definitionInfo.yamlPath).replace(/\\/g, '/');
-        propLines.push(`filepath: '${relYamlPath}',`);
+        props['filepath'] = relYamlPath;
 
         const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
         if (lambdaSubs.length > 0) {
-            const lambdaEntries = lambdaSubs.map(s => `        ${s.cdkVarName},`).join('\n');
-            propLines.push(`lambdaFunctions: [\n${lambdaEntries}\n],`);
+            const lambdaEntries = lambdaSubs.map(s => `${s.cdkVarName}`).join(',');
+            props['lambdaFunctions'] = new RawTs(`[${lambdaEntries}]`);
         }
 
         const nonLambdaSubs = definitionInfo.substitutions.filter(s => !s.isLambda);
@@ -156,25 +145,18 @@ export function buildStateMachineStatement(
             const subEntries = nonLambdaSubs
                 .map(s => `${s.cdkVarName}: '', ` + `// TODO: replace with correct CDK expression`)
                 .join('\n');
-            propLines.push(`definitionSubstitutions: {\n${subEntries}\n    },`);
+            props['definitionSubstitutions'] = new RawTs(`{${subEntries}}`);
         }
     } else {
-        propLines.push(
-            `// TODO: DefinitionString was not Fn::Sub — provide definitionFileName manually`
+        props['filepath'] = new RawTs(
+            `'', + '// FIXME: DefinitionString was not Fn::Sub — provide filepath, lambdaFunctions, & definitionSubstitutions manually'`
         );
-        propLines.push(`definitionFileName: '',`);
     }
 
-    const handledKeys = new Set(['StateMachineName', 'TracingConfiguration']);
-    for (const [k, v] of Object.entries(entry.properties)) {
-        if (!handledKeys.has(k)) {
-            propLines.push(`// TODO: ${k}: ${valueToTs(v)},`);
-        }
-    }
+    const allProps = valueToTs(props);
 
-    const propsBlock = propLines.join('\n');
     return (
         `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
-        `(this, '${cdkId}', {\n${propsBlock}\n});`
+        `(this, '${cdkId}', ${allProps});`
     );
 }

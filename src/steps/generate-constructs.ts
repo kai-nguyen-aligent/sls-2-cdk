@@ -128,7 +128,7 @@ function applyToSourceFile(
     if (lambdaEntries.length > 0 && !existingBody.includes('lambdaFunctions(')) {
         const lambdaVarNames = lambdaEntries.map(e => pascalToCamel(e.logicalId.cdkId));
         ctor.addStatements(
-            `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props!);`
+            `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props);`
         );
     }
 

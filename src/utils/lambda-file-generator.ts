@@ -30,7 +30,7 @@ export function resolveEnvValueForFile(
 ): string {
     if (typeof value === 'string') {
         const cdkRef = ssmPlaceholderMap.get(value);
-        if (cdkRef) return cdkRef.replace('props!.', 'props.');
+        if (cdkRef) return cdkRef.replace('props!.', 'props?.');
     }
     return valueToTs(value);
 }
