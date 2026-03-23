@@ -562,8 +562,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'events',
         className: 'Rule',
         cfnNameProp: 'Name',
-        // FIXME: Targets require IRuleTarget instances (e.g. LambdaFunction, SfnStateMachine) — add via rule.addTarget()
-        omitProps: new Set(['Targets']),
+        omitProps: new Set(),
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [
                 'ScheduleExpression',

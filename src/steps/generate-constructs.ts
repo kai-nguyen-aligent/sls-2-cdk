@@ -16,6 +16,7 @@ import {
     buildApiGatewayMethodStatement,
     buildApiGatewayResourceStatement,
     buildConstructStatement,
+    buildEventRuleStatements,
     buildStateMachineStatement,
     buildUsagePlanStatements,
     resolveResources,
@@ -82,6 +83,24 @@ function ensureImports(
         sourceFile.addImportDeclaration({
             namespaceImport: 'sfn',
             moduleSpecifier: 'aws-cdk-lib/aws-stepfunctions',
+        });
+    }
+
+    const hasEventRuleWithTargets = entries.some(
+        e =>
+            e.cfnType === 'AWS::Events::Rule' &&
+            Array.isArray(e.properties['Targets']) &&
+            (e.properties['Targets'] as unknown[]).length > 0
+    );
+    if (
+        hasEventRuleWithTargets &&
+        !sourceFile.getImportDeclaration(
+            d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-events-targets'
+        )
+    ) {
+        sourceFile.addImportDeclaration({
+            namespaceImport: 'eventsTargets',
+            moduleSpecifier: 'aws-cdk-lib/aws-events-targets',
         });
     }
 
@@ -189,6 +208,13 @@ function applyToSourceFile(
 
         if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
             const statements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
+            ctor.addStatements([...comments, ...statements].join('\n'));
+            continue;
+        }
+
+        if (entry.cfnType === 'AWS::Events::Rule') {
+            const allEntries = [...nonLambdaEntries, ...lambdaEntries];
+            const statements = buildEventRuleStatements(entry, allEntries);
             ctor.addStatements([...comments, ...statements].join('\n'));
             continue;
         }
