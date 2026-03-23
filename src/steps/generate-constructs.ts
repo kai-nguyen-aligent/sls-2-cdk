@@ -24,10 +24,11 @@ import {
 
 const CFN_TYPE_ORDER: Record<string, number> = {
     'AWS::ApiGateway::RestApi': 10,
-    'AWS::ApiGateway::RequestValidator': 20,
-    'AWS::ApiGateway::Resource': 30,
-    'AWS::ApiGateway::Method': 40,
-    'AWS::ApiGateway::UsagePlan': 50,
+    'AWS::ApiGateway::ApiKey': 20,
+    'AWS::ApiGateway::RequestValidator': 30,
+    'AWS::ApiGateway::Resource': 40,
+    'AWS::ApiGateway::Method': 50,
+    'AWS::ApiGateway::UsagePlan': 60,
 };
 
 function ensureImports(
