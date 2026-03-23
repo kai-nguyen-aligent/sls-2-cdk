@@ -166,7 +166,7 @@ function applyToSourceFile(
             const definitionInfo = stateMachineDefinitions[cfnLogicalId];
             const statement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
             ctor.addStatements([...comments, statement].join('\n'));
-            break;
+            continue;
         }
 
         if (entry.cfnType === 'AWS::ApiGateway::Resource') {

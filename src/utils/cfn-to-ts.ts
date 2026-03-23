@@ -61,13 +61,20 @@ export function generateCdkId(logicalId: string): string {
     return sanitized;
 }
 
+/** Returns true if the key is a valid JS identifier and can be used unquoted. */
+function isValidIdentifier(key: string): boolean {
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key);
+}
+
 /**
  * Converts a CFN property key to camelCase.
  * ALL_CAPS keys (e.g., TABLE_NAME) are preserved as-is.
+ * Keys that are not valid JS identifiers (e.g. containing dots) are single-quoted.
  */
 function convertPropertyKey(key: string): string {
     if (/^[A-Z][A-Z0-9_]*$/.test(key)) return key;
-    return pascalToCamel(key);
+    const camel = pascalToCamel(key);
+    return isValidIdentifier(camel) ? camel : `'${escapeString(camel)}'`;
 }
 
 function escapeString(str: string): string {

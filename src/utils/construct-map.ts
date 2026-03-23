@@ -42,15 +42,48 @@ function resolveParentExpr(v: unknown): string {
     return `/* TODO: resolve parent reference */`;
 }
 
-/** Extracts the template string from a `Fn::Sub` value (string or [template, vars] form). */
+/**
+ * Converts a single `Fn::Join` part to a `Fn::Sub`-style string fragment.
+ * - Plain strings are returned as-is.
+ * - `{"Ref": "Id"}` → `${Id}`
+ * - `{"Fn::GetAtt": ["Id", "Attr"]}` → `${Id.Attr}`
+ */
+function joinPartToSubFragment(part: unknown): string {
+    if (typeof part === 'string') return part;
+    const intrinsic = detectIntrinsic(part);
+    if (intrinsic?.fn === 'Ref') return `\${${intrinsic.arg as string}}`;
+    if (intrinsic?.fn === 'Fn::GetAtt') {
+        const [logicalId, attr] = intrinsic.arg as [string, string];
+        return `\${${logicalId}.${attr}}`;
+    }
+    return '';
+}
+
+/**
+ * Extracts a `Fn::Sub`-style template string from either a `Fn::Sub` or `Fn::Join` value.
+ * - `Fn::Sub: "template"` → `"template"`
+ * - `Fn::Sub: ["template", vars]` → `"template"`
+ * - `Fn::Join: ["", [...parts]]` → parts joined as a Sub-style template string
+ */
 function getSubTemplate(value: unknown): string | null {
     const intrinsic = detectIntrinsic(value);
-    if (intrinsic?.fn !== 'Fn::Sub') return null;
-    return typeof intrinsic.arg === 'string'
-        ? intrinsic.arg
-        : Array.isArray(intrinsic.arg)
-          ? (intrinsic.arg as [string])[0]
-          : null;
+    if (!intrinsic) return null;
+
+    if (intrinsic.fn === 'Fn::Sub') {
+        return typeof intrinsic.arg === 'string'
+            ? intrinsic.arg
+            : Array.isArray(intrinsic.arg)
+              ? (intrinsic.arg as [string])[0]
+              : null;
+    }
+
+    if (intrinsic.fn === 'Fn::Join' && Array.isArray(intrinsic.arg)) {
+        const [delimiter, parts] = intrinsic.arg as [string, unknown[]];
+        if (!Array.isArray(parts)) return null;
+        return parts.map(joinPartToSubFragment).join(delimiter);
+    }
+
+    return null;
 }
 
 /**
@@ -317,6 +350,17 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
     },
 
     // API Gateway
+    'AWS::ApiGateway::RequestValidator': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        className: 'RequestValidator',
+        cfnNameProp: '',
+        omitProps: new Set(),
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            ['RestApiId', v => ({ restApi: new RawTs(resolveParentExpr(v)) })],
+            ['Name', v => ({ requestValidatorName: v })],
+        ]),
+    },
     'AWS::ApiGateway::Resource': {
         cdkModule: 'aws-cdk-lib/aws-apigateway',
         importAlias: 'apigw',
@@ -338,6 +382,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(['RestApiId', 'AuthorizerId', 'MethodResponses']),
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             ['ResourceId', v => ({ resourceRef: new RawTs(resolveParentExpr(v)) })],
+            ['RequestValidatorId', v => ({ requestValidator: new RawTs(resolveParentExpr(v)) })],
             [
                 'AuthorizationType',
                 v => ({ authorizationType: new RawTs(`apigw.AuthorizationType.${v}`) }),
