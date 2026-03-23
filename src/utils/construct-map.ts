@@ -210,7 +210,18 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'apigw',
         className: 'RestApi',
         cfnNameProp: 'Name',
-        omitProps: new Set(),
+        // Policy requires a PolicyDocument object — provide via iam.PolicyDocument.fromJson() if needed
+        omitProps: new Set(['Policy']),
+        propExpansions: new Map([
+            [
+                'EndpointConfiguration',
+                v => {
+                    const cfg = (v ?? {}) as { Types?: string[] };
+                    const types = (cfg.Types ?? []).map(t => new RawTs(`apigw.EndpointType.${t}`));
+                    return { endpointConfiguration: { types } };
+                },
+            ],
+        ]),
     },
     'AWS::ApiGateway::ApiKey': {
         cdkModule: 'aws-cdk-lib/aws-apigateway',
@@ -219,6 +230,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         // StageKeys is deprecated in favour of UsagePlan.stages
         omitProps: new Set(['StageKeys']),
+        propExpansions: new Map([['Name', v => ({ apiKeyName: v })]]),
     },
     'AWS::ApiGateway::UsagePlan': {
         cdkModule: 'aws-cdk-lib/aws-apigateway',
@@ -227,6 +239,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'UsagePlanName',
         // ApiStages references IRestApi/Stage constructs — add via addApiStage() after construction
         omitProps: new Set(['ApiStages']),
+        propExpansions: new Map([['UsagePlanName', v => ({ name: v })]]),
     },
 
     // IAM
