@@ -149,7 +149,7 @@ export function buildUsagePlanStatements(
     for (const restApiEntry of restApiEntries) {
         const restApiVar = pascalToCamel(restApiEntry.logicalId.cdkId);
         statements.push(
-            `${usagePlanVar}.addApiStage({ api: ${restApiVar}, stage: ${restApiVar}.deploymentStage });`
+            `${usagePlanVar}.addApiStage({ api: ${restApiVar} as apigw.IRestApi, stage: ${restApiVar}.deploymentStage });`
         );
     }
 
