@@ -357,7 +357,10 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: '',
         omitProps: new Set(),
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
-            ['RestApiId', v => ({ restApi: new RawTs(resolveParentExpr(v)) })],
+            [
+                'RestApiId',
+                v => ({ restApi: new RawTs(`${resolveParentExpr(v)} as apigw.IRestApi`) }),
+            ],
             ['Name', v => ({ requestValidatorName: v })],
         ]),
     },
@@ -559,7 +562,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'events',
         className: 'Rule',
         cfnNameProp: 'Name',
-        // Targets require IRuleTarget instances (e.g. LambdaFunction, SfnStateMachine) — add via rule.addTarget()
+        // FIXME: Targets require IRuleTarget instances (e.g. LambdaFunction, SfnStateMachine) — add via rule.addTarget()
         omitProps: new Set(['Targets']),
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [

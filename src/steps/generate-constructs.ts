@@ -21,6 +21,14 @@ import {
     resolveResources,
 } from '../utils/resource-processor.js';
 
+const CFN_TYPE_ORDER: Record<string, number> = {
+    'AWS::ApiGateway::RestApi': 10,
+    'AWS::ApiGateway::RequestValidator': 20,
+    'AWS::ApiGateway::Resource': 30,
+    'AWS::ApiGateway::Method': 40,
+    'AWS::ApiGateway::UsagePlan': 50,
+};
+
 function ensureImports(
     sourceFile: SourceFile,
     entries: ResourceEntry[],
@@ -226,7 +234,9 @@ export function generateConstructs(
         destinationServicePath
     );
 
-    const nonLambdaEntries = entries.filter(e => e.cfnType !== 'AWS::Lambda::Function');
+    const nonLambdaEntries = entries
+        .filter(e => e.cfnType !== 'AWS::Lambda::Function')
+        .sort((a, b) => (CFN_TYPE_ORDER[a.cfnType] ?? 0) - (CFN_TYPE_ORDER[b.cfnType] ?? 0));
 
     // Module aliases only for non-lambda constructs (lambdas go to their own file)
     const nonLambdaModuleAliases = new Map<string, string>();
