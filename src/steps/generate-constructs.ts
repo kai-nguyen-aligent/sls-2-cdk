@@ -10,13 +10,16 @@ import type {
     ResourceEntry,
     StateMachineDefinitionInfo,
 } from '../types/index.js';
-import { RawTs, pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
+import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
+import { generateLambdaFunctionsFile, resolveEnvValue } from '../utils/lambda-file-generator.js';
 import {
-    buildLambdaEnvTs,
-    generateLambdaFunctionsFile,
-    resolveEnvValue,
-} from '../utils/lambda-file-generator.js';
-import { buildStateMachineStatement, resolveResources } from '../utils/resource-processor.js';
+    buildApiGatewayMethodStatement,
+    buildApiGatewayResourceStatement,
+    buildConstructStatement,
+    buildStateMachineStatement,
+    buildUsagePlanStatements,
+    resolveResources,
+} from '../utils/resource-processor.js';
 
 function ensureImports(
     sourceFile: SourceFile,
@@ -130,7 +133,9 @@ function applyToSourceFile(
     const nonLambdaVpcEntries = nonLambdaEntries.filter(e => 'vpc' in e.properties);
     if (nonLambdaVpcEntries.length && !existingBody.includes('vpcConfig')) {
         const { vpc, vpcSubnets, securityGroups } = nonLambdaVpcEntries[0]!.properties;
-        ctor.addStatements(`const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups })};`);
+        ctor.addStatements(
+            `const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups }).replaceAll('scope,', 'this,')};`
+        );
     }
 
     if (lambdaEntries.length > 0 && !existingBody.includes('lambdaFunctions(')) {
@@ -139,6 +144,9 @@ function applyToSourceFile(
             `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props);`
         );
     }
+
+    const restApiEntries = nonLambdaEntries.filter(e => e.cfnType === 'AWS::ApiGateway::RestApi');
+    const apiKeyEntries = nonLambdaEntries.filter(e => e.cfnType === 'AWS::ApiGateway::ApiKey');
 
     for (const entry of nonLambdaEntries) {
         const { cdkId, cfnLogicalId } = entry.logicalId;
@@ -154,44 +162,30 @@ function applyToSourceFile(
         comments.push(`// ${cfnLogicalId} (${entry.cfnType})`);
         comments.push(`// TODO: Review and adjust properties for ${entry.mapping.className}`);
 
-        let constructStatement: string;
         if (entry.mapping.className === 'StepFunctionFromFile') {
             const definitionInfo = stateMachineDefinitions[cfnLogicalId];
-            constructStatement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
-        } else {
-            const varName = pascalToCamel(cdkId);
-            let props = entry.properties;
-            if (
-                hasSharedEnv &&
-                entry.cfnType === 'AWS::Lambda::Function' &&
-                props['Environment'] &&
-                typeof props['Environment'] === 'object'
-            ) {
-                const envVars = props['Environment'] as Record<string, unknown>;
-                props = {
-                    ...props,
-                    Environment: new RawTs(
-                        buildLambdaEnvTs(envVars, commonEnvKeys, ssmPlaceholderMap)
-                    ),
-                };
-            }
-            let propsTs: string;
-            if ('vpc' in props) {
-                const { vpc: _vpc, vpcSubnets: _vs, securityGroups: _sg, ...rest } = props;
-                const restTs = valueToTs(rest);
-                propsTs =
-                    restTs === '{}'
-                        ? '{ ...vpcConfig }'
-                        : restTs.replace(/^\{ /, '{ ...vpcConfig, ');
-            } else {
-                propsTs = valueToTs(props);
-            }
-            constructStatement =
-                `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
-                `(this, '${cdkId}', ${propsTs});`;
+            const statement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
+            ctor.addStatements([...comments, statement].join('\n'));
+            break;
         }
 
-        ctor.addStatements([...comments, constructStatement].join('\n'));
+        if (entry.cfnType === 'AWS::ApiGateway::Resource') {
+            ctor.addStatements([...comments, buildApiGatewayResourceStatement(entry)].join('\n'));
+            continue;
+        }
+
+        if (entry.cfnType === 'AWS::ApiGateway::Method') {
+            ctor.addStatements([...comments, buildApiGatewayMethodStatement(entry)].join('\n'));
+            continue;
+        }
+
+        if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
+            const statements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
+            ctor.addStatements([...comments, ...statements].join('\n'));
+            continue;
+        }
+
+        ctor.addStatements([...comments, buildConstructStatement(entry)].join('\n'));
     }
 }
 

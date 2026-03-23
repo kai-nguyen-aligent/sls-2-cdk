@@ -1,5 +1,11 @@
 import type { CdkMapping } from '../types/index.js';
-import { RawTs, valueToTs } from './cfn-to-ts.js';
+import { detectIntrinsic, generateCdkId, pascalToCamel, RawTs, valueToTs } from './cfn-to-ts.js';
+
+interface Integration {
+    Type?: string;
+    Uri?: unknown;
+    RequestTemplates?: Record<string, unknown>;
+}
 
 /**
  * Suffixes appended by Serverless Framework to CloudFormation logical IDs.
@@ -17,6 +23,74 @@ export const IGNORE_LOGICAL_IDS = new Set<string>([
     'ServerlessDeploymentBucketPolicy',
     'IamRoleLambdaExecution',
 ]);
+
+/**
+ * Resolves a CloudFormation `Fn::GetAtt`/`Ref` parent reference to the CDK variable expression.
+ * - `Fn::GetAtt: [RestApiId, RootResourceId]` → `restApiVar.root`
+ * - `Ref: ResourceLogicalId` → `resourceVar`
+ */
+function resolveParentExpr(v: unknown): string {
+    const intrinsic = detectIntrinsic(v);
+    if (intrinsic?.fn === 'Fn::GetAtt') {
+        const [logicalId] = intrinsic.arg as [string, string];
+        return `${pascalToCamel(generateCdkId(logicalId))}.root`;
+    }
+    if (intrinsic?.fn === 'Ref') {
+        const logicalId = intrinsic.arg as string;
+        return pascalToCamel(generateCdkId(logicalId));
+    }
+    return `/* TODO: resolve parent reference */`;
+}
+
+/** Extracts the template string from a `Fn::Sub` value (string or [template, vars] form). */
+function getSubTemplate(value: unknown): string | null {
+    const intrinsic = detectIntrinsic(value);
+    if (intrinsic?.fn !== 'Fn::Sub') return null;
+    return typeof intrinsic.arg === 'string'
+        ? intrinsic.arg
+        : Array.isArray(intrinsic.arg)
+          ? (intrinsic.arg as [string])[0]
+          : null;
+}
+
+/**
+ * Attempts to extract the Lambda logical ID from a Lambda proxy integration URI.
+ * Handles the common Serverless Framework pattern:
+ *   `Fn::Sub: arn:...:functions/${MyFunctionLambdaFunction.Arn}/invocations`
+ */
+function resolveLambdaLogicalIdFromUri(uri: unknown): string | null {
+    const template = getSubTemplate(uri);
+    if (!template) return null;
+    return /functions\/\$\{([^.}]+)\.Arn\}/.exec(template)?.[1] ?? null;
+}
+
+/**
+ * Attempts to extract the SQS queue logical ID from an AWS integration URI.
+ * Handles: `Fn::Sub: arn:...:sqs:path/${AWS::AccountId}/${MyQueue.QueueName}`
+ * Also matches bare Ref form: `.../${MyQueue}`
+ */
+function resolveSqsQueueLogicalIdFromUri(uri: unknown): string | null {
+    const template = getSubTemplate(uri);
+    if (!template) return null;
+    return /sqs:path\/[^/]+\/\$\{([^.}]+)(?:\.QueueName)?\}/.exec(template)?.[1] ?? null;
+}
+
+/**
+ * Attempts to extract the Step Functions state machine logical ID from a CFN Integration's
+ * RequestTemplates. Looks for `"stateMachineArn": "${LogicalId}"` in any Fn::Sub template.
+ */
+function resolveSfnLogicalIdFromRequestTemplates(
+    requestTemplates: Record<string, unknown> | undefined
+): string | null {
+    if (!requestTemplates) return null;
+    for (const tpl of Object.values(requestTemplates)) {
+        const text = getSubTemplate(tpl) ?? (typeof tpl === 'string' ? tpl : null);
+        if (!text) continue;
+        const match = /"stateMachineArn"\s*:\s*"\$\{([^.}]+)(?:\.Arn)?\}"/.exec(text);
+        if (match?.[1]) return match[1];
+    }
+    return null;
+}
 
 /**
  * Explicit mapping of CloudFormation resource types to CDK L2 constructs.
@@ -61,18 +135,18 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     const subnets = subnetIds
                         .map(
                             (id, i) =>
-                                `ec2.Subnet.fromSubnetId(this, 'Subnet${i}', ${valueToTs(id)})`
+                                `ec2.Subnet.fromSubnetId(scope, 'Subnet${i}', ${valueToTs(id)})`
                         )
                         .join(', ');
                     const sgs = sgIds
                         .map(
                             (id, i) =>
-                                `ec2.SecurityGroup.fromSecurityGroupId(this, 'SecurityGroup${i}', ${valueToTs(id)})`
+                                `ec2.SecurityGroup.fromSecurityGroupId(scope, 'SecurityGroup${i}', ${valueToTs(id)})`
                         )
                         .join(', ');
                     return {
                         vpc: new RawTs(
-                            `ec2.Vpc.fromLookup(this, 'Vpc', { vpcId: '' /* TODO: [IMPORTANT] replace with actual VPC ID */ })`
+                            `ec2.Vpc.fromLookup(scope, 'Vpc', { vpcId: '' /* TODO: [IMPORTANT] replace with actual VPC ID */ })`
                         ),
                         vpcSubnets: new RawTs(`{ subnets: [${subnets}] }`),
                         securityGroups: new RawTs(`[${sgs}]`),
@@ -218,6 +292,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         ]),
     },
 
+    // Step Functions
     'AWS::StepFunctions::StateMachine': {
         cdkModule: '@aligent/cdk-step-function-from-file',
         importAlias: 'sfnFromFile',
@@ -242,6 +317,99 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
     },
 
     // API Gateway
+    'AWS::ApiGateway::Resource': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        // Not instantiated with `new` — generated via parent.addResource(pathPart)
+        className: 'Resource',
+        cfnNameProp: '',
+        omitProps: new Set(['RestApiId']),
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            ['ParentId', v => ({ parentRef: new RawTs(resolveParentExpr(v)) })],
+        ]),
+    },
+    'AWS::ApiGateway::Method': {
+        cdkModule: 'aws-cdk-lib/aws-apigateway',
+        importAlias: 'apigw',
+        // Not instantiated with `new` — generated via resource.addMethod(httpMethod, integration, options)
+        className: 'Method',
+        cfnNameProp: '',
+        // AuthorizerId requires an IAuthorizer construct ref; MethodResponses is complex to map
+        omitProps: new Set(['RestApiId', 'AuthorizerId', 'MethodResponses']),
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            ['ResourceId', v => ({ resourceRef: new RawTs(resolveParentExpr(v)) })],
+            [
+                'AuthorizationType',
+                v => ({ authorizationType: new RawTs(`apigw.AuthorizationType.${v}`) }),
+            ],
+            [
+                'Integration',
+                v => {
+                    const integration = (v ?? {}) as Integration;
+
+                    if (integration.Type === 'AWS_PROXY' && integration.Uri) {
+                        const lambdaId = resolveLambdaLogicalIdFromUri(integration.Uri);
+                        if (lambdaId) {
+                            const varName = pascalToCamel(generateCdkId(lambdaId));
+                            return {
+                                integrationRef: new RawTs(
+                                    `new apigw.LambdaIntegration(${varName})`
+                                ),
+                            };
+                        }
+                    }
+
+                    if (integration.Type === 'AWS' && integration.Uri) {
+                        const uriTemplate = getSubTemplate(integration.Uri) ?? '';
+                        if (uriTemplate.includes(':sqs:')) {
+                            const queueId = resolveSqsQueueLogicalIdFromUri(integration.Uri);
+                            if (queueId) {
+                                const queueVar = pascalToCamel(generateCdkId(queueId));
+                                return {
+                                    integrationRef: new RawTs(
+                                        `new apigw.AwsIntegration({ service: 'sqs', path: \`\${cdk.Aws.ACCOUNT_ID}/\${${queueVar}.queueName}\`, integrationHttpMethod: 'POST' })`
+                                    ),
+                                };
+                            }
+                            return {
+                                integrationRef: new RawTs(
+                                    `/* TODO: SQS AwsIntegration — set service: 'sqs', path, and options */`
+                                ),
+                            };
+                        }
+                        if (uriTemplate.includes(':states:action/StartExecution')) {
+                            const sfnId = resolveSfnLogicalIdFromRequestTemplates(
+                                integration.RequestTemplates
+                            );
+                            if (sfnId) {
+                                const sfnVar = pascalToCamel(generateCdkId(sfnId));
+                                return {
+                                    integrationRef: new RawTs(
+                                        `apigw.StepFunctionsIntegration.startExecution(${sfnVar})`
+                                    ),
+                                };
+                            }
+                            return {
+                                integrationRef: new RawTs(
+                                    `/* TODO: Step Functions integration — use apigw.StepFunctionsIntegration.startExecution(stateMachine) */`
+                                ),
+                            };
+                        }
+                    }
+
+                    if (integration.Type === 'MOCK') {
+                        return { integrationRef: new RawTs(`new apigw.MockIntegration()`) };
+                    }
+
+                    return {
+                        integrationRef: new RawTs(
+                            `/* TODO: ${integration.Type ?? 'unknown'} integration */`
+                        ),
+                    };
+                },
+            ],
+        ]),
+    },
     'AWS::ApiGateway::RestApi': {
         cdkModule: 'aws-cdk-lib/aws-apigateway',
         importAlias: 'apigw',
@@ -249,7 +417,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         // Policy requires a PolicyDocument object — provide via iam.PolicyDocument.fromJson() if needed
         omitProps: new Set(['Policy']),
-        propExpansions: new Map([
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [
                 'EndpointConfiguration',
                 v => {
@@ -304,8 +472,6 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
     //     cfnNameProp: 'LogGroupName',
     //     omitProps: new Set(),
     // },
-
-    // Step Functions
 
     // SQS
     'AWS::SQS::Queue': {

@@ -119,6 +119,82 @@ export function resolveResources(
     return { entries, moduleAliases, generated, skipped };
 }
 
+export function buildConstructStatement(entry: ResourceEntry): string {
+    const varName = pascalToCamel(entry.logicalId.cdkId);
+    const props = { ...entry.properties };
+
+    let propsTs: string;
+    if ('vpc' in props) {
+        const { vpc: _vpc, vpcSubnets: _vs, securityGroups: _sg, ...rest } = props;
+        const restTs = valueToTs(rest);
+        propsTs = restTs === '{}' ? '{ ...vpcConfig }' : restTs.replace(/^\{ /, '{ ...vpcConfig, ');
+    } else {
+        propsTs = valueToTs(props);
+    }
+
+    return (
+        `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
+        `(this, '${entry.logicalId.cdkId}', ${propsTs});`
+    );
+}
+
+export function buildUsagePlanStatements(
+    entry: ResourceEntry,
+    restApiEntries: ResourceEntry[],
+    apiKeyEntries: ResourceEntry[]
+): string[] {
+    const usagePlanVar = pascalToCamel(entry.logicalId.cdkId);
+    const statements: string[] = [buildConstructStatement(entry)];
+
+    for (const restApiEntry of restApiEntries) {
+        const restApiVar = pascalToCamel(restApiEntry.logicalId.cdkId);
+        statements.push(
+            `${usagePlanVar}.addApiStage({ api: ${restApiVar}, stage: ${restApiVar}.deploymentStage });`
+        );
+    }
+
+    for (const apiKeyEntry of apiKeyEntries) {
+        const apiKeyVar = pascalToCamel(apiKeyEntry.logicalId.cdkId);
+        statements.push(`${usagePlanVar}.addApiKey(${apiKeyVar});`);
+    }
+
+    return statements;
+}
+
+export function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
+    const { cdkId } = entry.logicalId;
+    const varName = pascalToCamel(cdkId);
+    const props = { ...entry.properties };
+
+    const resourceRef = props['resourceRef'];
+    const httpMethod = props['HttpMethod'];
+    const integrationRef = props['integrationRef'];
+    delete props['resourceRef'];
+    delete props['HttpMethod'];
+    delete props['integrationRef'];
+
+    const resourceExpr =
+        resourceRef instanceof RawTs ? resourceRef.code : `/* TODO: resolve ResourceId */`;
+    const integrationExpr =
+        integrationRef instanceof RawTs ? integrationRef.code : `/* TODO: add integration */`;
+    const optionsTs = Object.keys(props).length > 0 ? `, ${valueToTs(props)}` : '';
+
+    return `const ${varName} = ${resourceExpr}.addMethod(${valueToTs(httpMethod)}, ${integrationExpr}${optionsTs});`;
+}
+
+export function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
+    const { cdkId } = entry.logicalId;
+    const varName = pascalToCamel(cdkId);
+    const props = entry.properties;
+
+    const parentRef = props['parentRef'];
+    const pathPart = props['PathPart'];
+
+    const parentExpr = parentRef instanceof RawTs ? parentRef.code : `/* TODO: resolve ParentId */`;
+
+    return `const ${varName} = ${parentExpr}.addResource(${valueToTs(pathPart)});`;
+}
+
 export function buildStateMachineStatement(
     entry: ResourceEntry,
     definitionInfo: StateMachineDefinitionInfo | undefined,

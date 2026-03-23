@@ -429,4 +429,35 @@ describe('generateConstructs', () => {
         expect(lambdaContent).not.toContain('sharedEnv');
         expect(lambdaContent).toContain("STAGE: 'prod'");
     });
+
+    it('should link UsagePlan to RestApi via addApiStage and to ApiKey via addApiKey', () => {
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyApiKey: { Type: 'AWS::ApiGateway::ApiKey', Properties: {} },
+                MyUsagePlan: { Type: 'AWS::ApiGateway::UsagePlan', Properties: {} },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const content = fs.readFileSync(result.outputPath, 'utf-8');
+
+        expect(content).toContain(
+            'myUsagePlan.addApiStage({ api: myRestApi, stage: myRestApi.deploymentStage })'
+        );
+        expect(content).toContain('myUsagePlan.addApiKey(myApiKey)');
+    });
+
+    it('should not add addApiStage or addApiKey when no UsagePlan is present', () => {
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyApiKey: { Type: 'AWS::ApiGateway::ApiKey', Properties: {} },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const content = fs.readFileSync(result.outputPath, 'utf-8');
+
+        expect(content).not.toContain('addApiStage');
+        expect(content).not.toContain('addApiKey');
+    });
 });
