@@ -111,6 +111,14 @@ function applyToSourceFile(
     const sourceFilePath = sourceFile.getFilePath();
     const existingBody = ctor.getBody()?.getText() ?? '';
 
+    if (!existingBody.includes('IAM roles are intentionally omitted')) {
+        ctor.addStatements(
+            `// FIXME: IAM roles are intentionally omitted.\n` +
+                `// Serverless Framework uses a single shared role for all resources.\n` +
+                `// Define more granular IAM roles and permissions per resource here.`
+        );
+    }
+
     // sharedEnv stays in index.ts only when there are no extracted lambda functions
     if (hasSharedEnv && lambdaEntries.length === 0 && !existingBody.includes('sharedEnv')) {
         const envProps = sharedEnvVars

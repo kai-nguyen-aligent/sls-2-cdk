@@ -179,6 +179,43 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Bucket',
         cfnNameProp: 'BucketName',
         omitProps: new Set(),
+        propExpansions: new Map([
+            [
+                'LifecycleConfiguration',
+                v => {
+                    const cfg = (v ?? {}) as { Rules?: Array<Record<string, unknown>> };
+                    const rules = (cfg.Rules ?? []).map(rule => {
+                        const cdkRule: Record<string, unknown> = {};
+                        if ('Status' in rule) {
+                            cdkRule['enabled'] = rule['Status'] === 'Enabled';
+                        }
+                        if (typeof rule['ExpirationInDays'] === 'number') {
+                            cdkRule['expiration'] = new RawTs(
+                                `cdk.Duration.days(${rule['ExpirationInDays']})`
+                            );
+                        }
+                        if (typeof rule['ExpirationDate'] === 'string') {
+                            cdkRule['expirationDate'] = new RawTs(
+                                `new Date('${rule['ExpirationDate']}')`
+                            );
+                        }
+                        if (typeof rule['NoncurrentVersionExpiration'] === 'object') {
+                            const nve = rule['NoncurrentVersionExpiration'] as Record<
+                                string,
+                                unknown
+                            >;
+                            if (typeof nve['NoncurrentDays'] === 'number') {
+                                cdkRule['noncurrentVersionExpiration'] = new RawTs(
+                                    `cdk.Duration.days(${nve['NoncurrentDays']})`
+                                );
+                            }
+                        }
+                        return cdkRule;
+                    });
+                    return { lifecycleRules: rules };
+                },
+            ],
+        ]),
     },
 
     'AWS::StepFunctions::StateMachine': {
@@ -312,6 +349,18 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: 'Name',
         // Targets require IRuleTarget instances (e.g. LambdaFunction, SfnStateMachine) — add via rule.addTarget()
         omitProps: new Set(['Targets']),
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            [
+                'ScheduleExpression',
+                v => ({
+                    schedule: new RawTs(`events.Schedule.expression(${valueToTs(v)})`),
+                }),
+            ],
+            [
+                'State',
+                v => ({ enabled: v === 'ENABLED' }),
+            ],
+        ]),
     },
 
     // CloudWatch
