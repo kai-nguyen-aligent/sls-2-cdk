@@ -258,6 +258,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     return { endpointConfiguration: { types } };
                 },
             ],
+            ['Name', v => ({ restApiName: v })],
         ]),
     },
     'AWS::ApiGateway::ApiKey': {
@@ -356,10 +357,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     schedule: new RawTs(`events.Schedule.expression(${valueToTs(v)})`),
                 }),
             ],
-            [
-                'State',
-                v => ({ enabled: v === 'ENABLED' }),
-            ],
+            ['State', v => ({ enabled: v === 'ENABLED' })],
         ]),
     },
 

@@ -124,7 +124,7 @@ export function generateLambdaFunctionsFile(
             name: 'lambdaFunctions',
             parameters: [
                 { name: 'scope', type: 'Construct' },
-                { name: 'props', type: 'SharedInfraProps' },
+                { name: 'props?', type: 'SharedInfraProps' },
             ],
         });
     }
