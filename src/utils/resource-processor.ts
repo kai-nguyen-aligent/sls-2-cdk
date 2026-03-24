@@ -308,6 +308,36 @@ function resolveEventTarget(target: Record<string, unknown>, allEntries: Resourc
     return `/* TODO: resolve target ARN: ${valueToTs(target['Arn'])} */`;
 }
 
+export function buildLambdaPermissionStatement(entry: ResourceEntry): string {
+    const { cdkId } = entry.logicalId;
+    const props = entry.properties;
+
+    const fnIntrinsic = detectIntrinsic(props['FunctionName']);
+    let fnExpr: string;
+    if (fnIntrinsic?.fn === 'Fn::GetAtt') {
+        const [logicalId] = fnIntrinsic.arg as [string, string];
+        fnExpr = pascalToCamel(generateCdkId(logicalId));
+    } else if (fnIntrinsic?.fn === 'Ref') {
+        const logicalId = fnIntrinsic.arg as string;
+        fnExpr = pascalToCamel(generateCdkId(logicalId));
+    } else {
+        fnExpr = `lambda.Function.fromFunctionName(this, '${cdkId}Fn', ${valueToTs(props['FunctionName'])})`;
+    }
+
+    const opts: string[] = [
+        `principal: /* TODO: use iam.ServicePrincipal / iam.AccountPrincipal / iam.ArnPrincipal */ new iam.ServicePrincipal(${valueToTs(props['Principal'])})`,
+        `action: ${valueToTs(props['Action'] ?? 'lambda:InvokeFunction')}`,
+    ];
+    if (props['SourceArn'] !== undefined) {
+        opts.push(`sourceArn: ${valueToTs(props['SourceArn'])}`);
+    }
+    if (props['SourceAccount'] !== undefined) {
+        opts.push(`sourceAccount: ${valueToTs(props['SourceAccount'])}`);
+    }
+
+    return `${fnExpr}.addPermission('${cdkId}', { ${opts.join(', ')} });`;
+}
+
 export function buildEventRuleStatements(
     entry: ResourceEntry,
     allEntries: ResourceEntry[]

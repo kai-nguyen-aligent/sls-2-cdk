@@ -17,6 +17,7 @@ import {
     buildApiGatewayResourceStatement,
     buildConstructStatement,
     buildEventRuleStatements,
+    buildLambdaPermissionStatement,
     buildStateMachineStatement,
     buildUsagePlanStatements,
     resolveResources,
@@ -72,6 +73,17 @@ function ensureImports(
         sourceFile.addImportDeclaration({
             namespaceImport: 'ec2',
             moduleSpecifier: 'aws-cdk-lib/aws-ec2',
+        });
+    }
+
+    const hasLambdaPermission = entries.some(e => e.cfnType === 'AWS::Lambda::Permission');
+    if (
+        hasLambdaPermission &&
+        !sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-iam')
+    ) {
+        sourceFile.addImportDeclaration({
+            namespaceImport: 'iam',
+            moduleSpecifier: 'aws-cdk-lib/aws-iam',
         });
     }
 
@@ -210,6 +222,11 @@ function applyToSourceFile(
         if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
             const statements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
             ctor.addStatements([...comments, ...statements].join('\n'));
+            continue;
+        }
+
+        if (entry.cfnType === 'AWS::Lambda::Permission') {
+            ctor.addStatements([...comments, buildLambdaPermissionStatement(entry)].join('\n'));
             continue;
         }
 

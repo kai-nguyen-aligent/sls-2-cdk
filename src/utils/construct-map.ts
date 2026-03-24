@@ -238,6 +238,14 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
         ]),
     },
+    'AWS::Lambda::Permission': {
+        cdkModule: 'aws-cdk-lib/aws-lambda',
+        importAlias: 'lambda',
+        // Not instantiated with `new` — generated via fn.addPermission(id, options)
+        className: 'Permission',
+        cfnNameProp: '',
+        omitProps: new Set(),
+    },
 
     // DynamoDB
     'AWS::DynamoDB::Table': {
@@ -496,31 +504,6 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         propExpansions: new Map([['UsagePlanName', v => ({ name: v })]]),
     },
 
-    // IAM
-    // 'AWS::IAM::Role': {
-    //     cdkModule: 'aws-cdk-lib/aws-iam',
-    //     importAlias: 'iam',
-    //     className: 'Role',
-    //     cfnNameProp: 'RoleName',
-    //     omitProps: new Set(),
-    // },
-    // 'AWS::IAM::Policy': {
-    //     cdkModule: 'aws-cdk-lib/aws-iam',
-    //     importAlias: 'iam',
-    //     className: 'Policy',
-    //     cfnNameProp: 'PolicyName',
-    //     omitProps: new Set(),
-    // },
-
-    // Logs
-    // 'AWS::Logs::LogGroup': {
-    //     cdkModule: 'aws-cdk-lib/aws-logs',
-    //     importAlias: 'logs',
-    //     className: 'LogGroup',
-    //     cfnNameProp: 'LogGroupName',
-    //     omitProps: new Set(),
-    // },
-
     // SQS
     'AWS::SQS::Queue': {
         cdkModule: 'aws-cdk-lib/aws-sqs',
@@ -557,6 +540,14 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
     },
 
     // Events
+    'AWS::Events::EventBus': {
+        cdkModule: 'aws-cdk-lib/aws-events',
+        importAlias: 'events',
+        className: 'EventBus',
+        cfnNameProp: 'Name',
+        omitProps: new Set(),
+        propExpansions: new Map([['Name', v => ({ eventBusName: v })]]),
+    },
     'AWS::Events::Rule': {
         cdkModule: 'aws-cdk-lib/aws-events',
         importAlias: 'events',
@@ -572,6 +563,16 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             ['State', v => ({ enabled: v === 'ENABLED' })],
         ]),
+    },
+
+    // Scheduler
+    'AWS::Scheduler::ScheduleGroup': {
+        cdkModule: 'aws-cdk-lib/aws-scheduler',
+        importAlias: 'scheduler',
+        className: 'ScheduleGroup',
+        cfnNameProp: 'Name',
+        omitProps: new Set(),
+        propExpansions: new Map([['Name', v => ({ scheduleGroupName: v })]]),
     },
 
     // CloudWatch
@@ -599,5 +600,67 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Secret',
         cfnNameProp: 'Name',
         omitProps: new Set(),
+    },
+
+    // IAM
+    // 'AWS::IAM::Role': {
+    //     cdkModule: 'aws-cdk-lib/aws-iam',
+    //     importAlias: 'iam',
+    //     className: 'Role',
+    //     cfnNameProp: 'RoleName',
+    //     omitProps: new Set(),
+    // },
+    // 'AWS::IAM::Policy': {
+    //     cdkModule: 'aws-cdk-lib/aws-iam',
+    //     importAlias: 'iam',
+    //     className: 'Policy',
+    //     cfnNameProp: 'PolicyName',
+    //     omitProps: new Set(),
+    // },
+
+    // Logs
+    // 'AWS::Logs::LogGroup': {
+    //     cdkModule: 'aws-cdk-lib/aws-logs',
+    //     importAlias: 'logs',
+    //     className: 'LogGroup',
+    //     cfnNameProp: 'LogGroupName',
+    //     omitProps: new Set(),
+    // },
+    'AWS::Logs::MetricFilter': {
+        cdkModule: 'aws-cdk-lib/aws-logs',
+        importAlias: 'logs',
+        className: 'MetricFilter',
+        cfnNameProp: 'FilterName',
+        omitProps: new Set(),
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            [
+                'LogGroupName',
+                v => ({
+                    logGroup: new RawTs(
+                        `logs.LogGroup.fromLogGroupName(this, 'LogGroup', ${valueToTs(v)})`
+                    ),
+                }),
+            ],
+            [
+                'FilterPattern',
+                v => ({
+                    filterPattern: new RawTs(`logs.FilterPattern.literal(${valueToTs(v)})`),
+                }),
+            ],
+            [
+                'MetricTransformations',
+                v => {
+                    const transforms = (v ?? []) as Array<Record<string, unknown>>;
+                    const t = transforms[0] ?? {};
+                    const result: Record<string, unknown> = {};
+                    if (t['MetricName']) result['metricName'] = t['MetricName'];
+                    if (t['MetricNamespace']) result['metricNamespace'] = t['MetricNamespace'];
+                    if (t['MetricValue'] !== undefined) result['metricValue'] = t['MetricValue'];
+                    if (t['DefaultValue'] !== undefined) result['defaultValue'] = t['DefaultValue'];
+                    return result;
+                },
+            ],
+            ['FilterName', v => ({ filterName: v })],
+        ]),
     },
 };
