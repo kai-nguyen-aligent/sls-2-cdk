@@ -238,17 +238,6 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
         ]),
     },
-    // KAI: We do not want this as Serverless create 1 permission for all
-    // May need to double check if any other kind of permission or remove by logicalID
-    // 'AWS::Lambda::Permission': {
-    //     cdkModule: 'aws-cdk-lib/aws-lambda',
-    //     importAlias: 'lambda',
-    //     // Not instantiated with `new` — generated via fn.addPermission(id, options)
-    //     className: 'Permission',
-    //     cfnNameProp: '',
-    //     omitProps: new Set(),
-    //     // handle sourceArn, transform to CDK reference
-    // },
 
     // DynamoDB
     'AWS::DynamoDB::Table': {
@@ -673,7 +662,6 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Alarm',
         cfnNameProp: 'AlarmName',
         omitProps: new Set(),
-        // KAI: handle AlarmActions
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [
                 'Dimensions',
@@ -732,30 +720,6 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(),
     },
 
-    // IAM
-    // 'AWS::IAM::Role': {
-    //     cdkModule: 'aws-cdk-lib/aws-iam',
-    //     importAlias: 'iam',
-    //     className: 'Role',
-    //     cfnNameProp: 'RoleName',
-    //     omitProps: new Set(),
-    // },
-    // 'AWS::IAM::Policy': {
-    //     cdkModule: 'aws-cdk-lib/aws-iam',
-    //     importAlias: 'iam',
-    //     className: 'Policy',
-    //     cfnNameProp: 'PolicyName',
-    //     omitProps: new Set(),
-    // },
-
-    // Logs
-    // 'AWS::Logs::LogGroup': {
-    //     cdkModule: 'aws-cdk-lib/aws-logs',
-    //     importAlias: 'logs',
-    //     className: 'LogGroup',
-    //     cfnNameProp: 'LogGroupName',
-    //     omitProps: new Set(),
-    // },
     'AWS::Logs::MetricFilter': {
         cdkModule: 'aws-cdk-lib/aws-logs',
         importAlias: 'logs',

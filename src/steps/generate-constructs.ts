@@ -13,6 +13,7 @@ import type {
 import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
 import { generateLambdaFunctionsFile, resolveEnvValue } from '../utils/lambda-file-generator.js';
 import {
+    buildAlarmStatements,
     buildApiGatewayMethodStatement,
     buildApiGatewayResourceStatement,
     buildConstructStatement,
@@ -114,6 +115,25 @@ function ensureImports(
         sourceFile.addImportDeclaration({
             namespaceImport: 'eventsTargets',
             moduleSpecifier: 'aws-cdk-lib/aws-events-targets',
+        });
+    }
+
+    const hasAlarmWithActions = entries.some(
+        e =>
+            e.cfnType === 'AWS::CloudWatch::Alarm' &&
+            (['AlarmActions', 'OKActions', 'InsufficientDataActions'] as const).some(
+                k => Array.isArray(e.properties[k]) && (e.properties[k] as unknown[]).length > 0
+            )
+    );
+    if (
+        hasAlarmWithActions &&
+        !sourceFile.getImportDeclaration(
+            d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-cloudwatch-actions'
+        )
+    ) {
+        sourceFile.addImportDeclaration({
+            namespaceImport: 'cwActions',
+            moduleSpecifier: 'aws-cdk-lib/aws-cloudwatch-actions',
         });
     }
 
@@ -233,6 +253,13 @@ function applyToSourceFile(
         if (entry.cfnType === 'AWS::Events::Rule') {
             const allEntries = [...nonLambdaEntries, ...lambdaEntries];
             const statements = buildEventRuleStatements(entry, allEntries);
+            ctor.addStatements([...comments, ...statements].join('\n'));
+            continue;
+        }
+
+        if (entry.cfnType === 'AWS::CloudWatch::Alarm') {
+            const allEntries = [...nonLambdaEntries, ...lambdaEntries];
+            const statements = buildAlarmStatements(entry, allEntries);
             ctor.addStatements([...comments, ...statements].join('\n'));
             continue;
         }
