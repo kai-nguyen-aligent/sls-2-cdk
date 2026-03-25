@@ -11,18 +11,19 @@ import type {
     StateMachineDefinitionInfo,
 } from '../types/index.js';
 import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
-import { generateLambdaFunctionsFile, resolveEnvValue } from '../utils/lambda-file-generator.js';
+import { buildConstructStatement, resolveResources } from '../utils/resource-processor.js';
 import {
-    buildAlarmStatements,
     buildApiGatewayMethodStatement,
     buildApiGatewayResourceStatement,
-    buildConstructStatement,
-    buildEventRuleStatements,
-    buildLambdaPermissionStatement,
-    buildStateMachineStatement,
     buildUsagePlanStatements,
-    resolveResources,
-} from '../utils/resource-processor.js';
+} from '../utils/resources/api-gateway.js';
+import { buildAlarmStatements } from '../utils/resources/cloudwatch-alarm.js';
+import { buildEventRuleStatements } from '../utils/resources/event-bridge.js';
+import {
+    generateLambdaFunctionsFile,
+    resolveEnvValue,
+} from '../utils/resources/lambda-functions.js';
+import { buildStateMachineStatement } from '../utils/resources/state-machine.js';
 
 const CFN_TYPE_ORDER: Record<string, number> = {
     'AWS::ApiGateway::RestApi': 10,
@@ -242,11 +243,6 @@ function applyToSourceFile(
         if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
             const statements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
             ctor.addStatements([...comments, ...statements].join('\n'));
-            continue;
-        }
-
-        if (entry.cfnType === 'AWS::Lambda::Permission') {
-            ctor.addStatements([...comments, buildLambdaPermissionStatement(entry)].join('\n'));
             continue;
         }
 

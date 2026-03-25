@@ -9,8 +9,8 @@ import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { updateSharedStack } from '../steps/update-shared-stack.js';
-import { extractStateMachineDefinitions } from '../utils/extract-state-machine-definitions.js';
 import { cleanupSubFiles, writeStepOutput } from '../utils/file-io.js';
+import { extractStateMachineDefinitions } from '../utils/resources/state-machine.js';
 import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 
 export default class Migrate extends Command {

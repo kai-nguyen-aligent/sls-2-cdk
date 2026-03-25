@@ -3,8 +3,8 @@ import * as path from 'node:path';
 
 import { Project } from 'ts-morph';
 
-import type { EnvVarEntry, ResourceEntry } from '../types/index.js';
-import { RawTs, pascalToCamel, valueToTs } from './cfn-to-ts.js';
+import type { EnvVarEntry, ResourceEntry } from '../../types/index.js';
+import { RawTs, pascalToCamel, valueToTs } from '../cfn-to-ts.js';
 
 /**
  * Resolves a lambda env var value to a TypeScript expression.

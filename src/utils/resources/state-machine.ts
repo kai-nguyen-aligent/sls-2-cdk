@@ -6,10 +6,11 @@ import { stringify } from 'yaml';
 import type {
     CloudFormationTemplate,
     ExtractStateMachineDefinitionsResult,
+    ResourceEntry,
     StateMachineDefinitionInfo,
     StateMachineSubstitution,
-} from '../types/index.js';
-import { generateCdkId, pascalToCamel } from './cfn-to-ts.js';
+} from '../../types/index.js';
+import { generateCdkId, pascalToCamel, RawTs, valueToTs } from '../cfn-to-ts.js';
 
 /**
  * Derives a filesystem-safe YAML filename from a CloudFormation StateMachine resource.
@@ -86,4 +87,46 @@ export function extractStateMachineDefinitions(
     }
 
     return { definitions, count: Object.keys(definitions).length };
+}
+
+export function buildStateMachineStatement(
+    entry: ResourceEntry,
+    definitionInfo: StateMachineDefinitionInfo | undefined,
+    sourceFilePath: string
+): string {
+    const { cdkId } = entry.logicalId;
+    const varName = pascalToCamel(cdkId);
+
+    const props = { ...entry.properties };
+
+    if (definitionInfo) {
+        const sourceDir = path.dirname(sourceFilePath);
+        const relYamlPath = path.relative(sourceDir, definitionInfo.yamlPath).replace(/\\/g, '/');
+        props['filepath'] = relYamlPath;
+
+        const lambdaSubs = definitionInfo.substitutions.filter(s => s.isLambda);
+        if (lambdaSubs.length > 0) {
+            const lambdaEntries = lambdaSubs.map(s => `${s.cdkVarName}`).join(',');
+            props['lambdaFunctions'] = new RawTs(`[${lambdaEntries}]`);
+        }
+
+        const nonLambdaSubs = definitionInfo.substitutions.filter(s => !s.isLambda);
+        if (nonLambdaSubs.length > 0) {
+            const subEntries = nonLambdaSubs
+                .map(s => `${s.cdkVarName}: '', ` + `// TODO: replace with correct CDK expression`)
+                .join('\n');
+            props['definitionSubstitutions'] = new RawTs(`{${subEntries}}`);
+        }
+    } else {
+        props['filepath'] = new RawTs(
+            `'', + '// FIXME: DefinitionString was not Fn::Sub — provide filepath, lambdaFunctions, & definitionSubstitutions manually'`
+        );
+    }
+
+    const allProps = valueToTs(props);
+
+    return (
+        `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +
+        `(this, '${cdkId}', ${allProps});`
+    );
 }
