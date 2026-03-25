@@ -887,6 +887,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(),
     },
 
+    // Logs
     'AWS::Logs::MetricFilter': {
         cdkModule: 'aws-cdk-lib/aws-logs',
         importAlias: 'logs',

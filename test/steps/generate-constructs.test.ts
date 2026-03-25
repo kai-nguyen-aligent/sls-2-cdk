@@ -42,6 +42,11 @@ function readLambdaFunctionsFile(): string {
     return fs.readFileSync(path.join(tmpDir, 'src', 'infra', 'lambda-functions.ts'), 'utf-8');
 }
 
+/** Reads the generated infra/api-gateway.ts file. */
+function readApiGatewayFile(): string {
+    return fs.readFileSync(path.join(tmpDir, 'src', 'infra', 'api-gateway.ts'), 'utf-8');
+}
+
 describe('generateConstructs', () => {
     it('should generate a NodejsFunction for AWS::Lambda::Function', () => {
         const template: CloudFormationTemplate = {
@@ -74,7 +79,7 @@ describe('generateConstructs', () => {
         // index.ts delegates to lambdaFunctions()
         const content = fs.readFileSync(result.outputPath, 'utf-8');
         expect(content).toContain('import { lambdaFunctions }');
-        expect(content).toContain('lambdaFunctions(this, props!)');
+        expect(content).toContain('lambdaFunctions(this, props)');
     });
 
     it('should generate constructs for multiple resource types', () => {
@@ -112,7 +117,7 @@ describe('generateConstructs', () => {
         expect(content).toContain('import * as s3 from "aws-cdk-lib/aws-s3"');
         expect(content).toContain('new dynamodb.Table');
         expect(content).toContain('new s3.Bucket');
-        expect(content).toContain('lambdaFunctions(this, props!)');
+        expect(content).toContain('lambdaFunctions(this, props)');
     });
 
     it('should skip Custom:: resource types', () => {
@@ -438,13 +443,13 @@ describe('generateConstructs', () => {
                 MyUsagePlan: { Type: 'AWS::ApiGateway::UsagePlan', Properties: {} },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const apiGwContent = readApiGatewayFile();
 
-        expect(content).toContain(
-            'myUsagePlan.addApiStage({ api: myRestApi, stage: myRestApi.deploymentStage })'
+        expect(apiGwContent).toContain(
+            'myUsagePlan.addApiStage({ api: myRestApi as IRestApi, stage: myRestApi.deploymentStage })'
         );
-        expect(content).toContain('myUsagePlan.addApiKey(myApiKey)');
+        expect(apiGwContent).toContain('myUsagePlan.addApiKey(myApiKey)');
     });
 
     it('should not add addApiStage or addApiKey when no UsagePlan is present', () => {
@@ -454,10 +459,82 @@ describe('generateConstructs', () => {
                 MyApiKey: { Type: 'AWS::ApiGateway::ApiKey', Properties: {} },
             },
         };
-        const result = generateConstructs(template, false, tmpDir, {});
-        const content = fs.readFileSync(result.outputPath, 'utf-8');
+        generateConstructs(template, false, tmpDir, {});
+        const apiGwContent = readApiGatewayFile();
 
-        expect(content).not.toContain('addApiStage');
-        expect(content).not.toContain('addApiKey');
+        expect(apiGwContent).not.toContain('addApiStage');
+        expect(apiGwContent).not.toContain('addApiKey');
+    });
+
+    it('should generate API Gateway resources in a separate infra/api-gateway.ts file', () => {
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyApiKey: { Type: 'AWS::ApiGateway::ApiKey', Properties: {} },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const indexContent = fs.readFileSync(result.outputPath, 'utf-8');
+        const apiGwContent = readApiGatewayFile();
+
+        // API GW constructs go to the separate file as a class
+        expect(apiGwContent).toContain('export class ApiGatewayResources');
+        expect(apiGwContent).toContain("new RestApi(scope, 'MyRestApi'");
+        expect(apiGwContent).toContain("new ApiKey(scope, 'MyApiKey'");
+
+        // Named imports from aws-cdk-lib/aws-apigateway (not namespace)
+        expect(apiGwContent).not.toContain('import * as apigw');
+        expect(apiGwContent).toContain('from "aws-cdk-lib/aws-apigateway"');
+
+        // index.ts gets the import and instantiation, not the construct definitions
+        expect(indexContent).toContain('import { ApiGatewayResources }');
+        expect(indexContent).toContain('new ApiGatewayResources(this)');
+        expect(indexContent).not.toContain("new RestApi(this, 'MyRestApi'");
+    });
+
+    it('should pass lambdas to ApiGatewayResources when Lambda integrations are present', () => {
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyFunc: {
+                    Type: 'AWS::Lambda::Function',
+                    Properties: { MemorySize: 128 },
+                },
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyResource: {
+                    Type: 'AWS::ApiGateway::Resource',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ParentId: { 'Fn::GetAtt': ['MyRestApi', 'RootResourceId'] },
+                        PathPart: 'test',
+                    },
+                },
+                MyMethod: {
+                    Type: 'AWS::ApiGateway::Method',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ResourceId: { Ref: 'MyResource' },
+                        HttpMethod: 'GET',
+                        Integration: {
+                            Type: 'AWS_PROXY',
+                            Uri: {
+                                'Fn::Sub':
+                                    'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyFuncLambdaFunction.Arn}/invocations',
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const indexContent = fs.readFileSync(result.outputPath, 'utf-8');
+        const apiGwContent = readApiGatewayFile();
+
+        // lambdas object kept for passing to ApiGatewayResources
+        expect(indexContent).toContain('const lambdas = lambdaFunctions(this, props)');
+        expect(indexContent).toContain('new ApiGatewayResources(this, lambdas)');
+
+        // api-gateway.ts imports lambdaFunctions type and destructures the lambda
+        expect(apiGwContent).toContain('import type { lambdaFunctions }');
+        expect(apiGwContent).toContain('new LambdaIntegration(myFunc)');
     });
 });

@@ -1,8 +1,13 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { Project } from 'ts-morph';
+
 import type { ResourceEntry } from '../../types/index.js';
 import { pascalToCamel, RawTs, valueToTs } from '../cfn-to-ts.js';
 import { buildConstructStatement } from '../resource-processor.js';
 
-export function buildUsagePlanStatements(
+function buildUsagePlanStatements(
     entry: ResourceEntry,
     restApiEntries: ResourceEntry[],
     apiKeyEntries: ResourceEntry[]
@@ -25,7 +30,7 @@ export function buildUsagePlanStatements(
     return statements;
 }
 
-export function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
+function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
     const { cdkId } = entry.logicalId;
     const varName = pascalToCamel(cdkId);
     const props = { ...entry.properties };
@@ -46,7 +51,7 @@ export function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
     return `const ${varName} = ${resourceExpr}.addMethod(${valueToTs(httpMethod)}, ${integrationExpr}${optionsTs});`;
 }
 
-export function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
+function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
     const { cdkId } = entry.logicalId;
     const varName = pascalToCamel(cdkId);
     const props = entry.properties;
@@ -57,4 +62,180 @@ export function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
     const parentExpr = parentRef instanceof RawTs ? parentRef.code : `/* TODO: resolve ParentId */`;
 
     return `const ${varName} = ${parentExpr}.addResource(${valueToTs(pathPart)});`;
+}
+
+/**
+ * Strips the `apigw.` module prefix from a statement and returns the transformed
+ * code along with the set of api-gateway names that need to be imported.
+ */
+function processApigwStatement(statement: string): { code: string; apigwImports: Set<string> } {
+    const apigwImports = new Set<string>();
+    const regex = /\bapigw\.(\w+)/g;
+    let match;
+    while ((match = regex.exec(statement)) !== null) {
+        apigwImports.add(match[1]!);
+    }
+    const code = statement.replace(/\bapigw\./g, '').replace(/\bthis\b/g, 'scope');
+    return { code, apigwImports };
+}
+
+// KAI: support other integrations: SQS, SFN
+/**
+ * Scans API Gateway Method entries and extracts lambda variable names referenced
+ * in LambdaIntegration expressions (e.g. `new LambdaIntegration(myLambda)`).
+ */
+function findReferencedLambdaVars(entries: ResourceEntry[]): string[] {
+    const vars = new Set<string>();
+    for (const entry of entries) {
+        if (entry.cfnType !== 'AWS::ApiGateway::Method') continue;
+        const integrationRef = entry.properties['integrationRef'];
+        if (integrationRef instanceof RawTs) {
+            const match = /new apigw\.LambdaIntegration\((\w+)\)/.exec(integrationRef.code);
+            if (match?.[1]) vars.add(match[1]);
+        }
+    }
+    return [...vars];
+}
+
+/**
+ * Generates (or updates) `src/infra/api-gateway.ts` with all API Gateway constructs
+ * extracted from the CloudFormation template. The generated file:
+ * - Exports an `ApiGatewayResources` class.
+ * - Uses named imports from `aws-cdk-lib/aws-apigateway`.
+ * - Accepts the lambda functions object when Lambda integrations are present.
+ */
+export function generateApiGatewayFile(
+    apiGwEntries: ResourceEntry[],
+    lambdaEntries: ResourceEntry[],
+    destinationServicePath: string
+): void {
+    if (apiGwEntries.length === 0) return;
+
+    const infraDir = path.join(destinationServicePath, 'src', 'infra');
+    const outputPath = path.join(infraDir, 'api-gateway.ts');
+    fs.mkdirSync(infraDir, { recursive: true });
+
+    const project = new Project();
+    const fileExists = fs.existsSync(outputPath);
+    const sourceFile = fileExists
+        ? project.addSourceFileAtPath(outputPath)
+        : project.createSourceFile(outputPath, '/* v8 ignore start - infrastructure code */\n');
+
+    const referencedLambdaVarNames = findReferencedLambdaVars(apiGwEntries);
+    const hasLambdaIntegrations = referencedLambdaVarNames.length > 0 && lambdaEntries.length > 0;
+
+    // --- Class and constructor ---
+    let cls = sourceFile.getClass('ApiGatewayResources');
+    if (!cls) {
+        cls = sourceFile.addClass({ isExported: true, name: 'ApiGatewayResources' });
+    }
+
+    const ctorParams: Array<{ name: string; type: string }> = [
+        { name: 'scope', type: 'Construct' },
+    ];
+    if (hasLambdaIntegrations) {
+        ctorParams.push({ name: 'lambdas?', type: 'ReturnType<typeof lambdaFunctions>' });
+    }
+
+    const ctor = cls.getConstructors()[0] ?? cls.addConstructor({ parameters: ctorParams });
+
+    const existingBody = ctor.getBody()?.getText() ?? '';
+
+    // Lambda destructuring
+    if (hasLambdaIntegrations && !existingBody.includes('lambdas ??')) {
+        ctor.addStatements(
+            `const { ${referencedLambdaVarNames.join(', ')} } = lambdas ?? {} as ReturnType<typeof lambdaFunctions>;`
+        );
+    }
+
+    // --- Resource instantiations ---
+    const restApiEntries = apiGwEntries.filter(e => e.cfnType === 'AWS::ApiGateway::RestApi');
+    const apiKeyEntries = apiGwEntries.filter(e => e.cfnType === 'AWS::ApiGateway::ApiKey');
+    const allApigwImports = new Set<string>();
+    const allGeneratedCode: string[] = [];
+
+    for (const entry of apiGwEntries) {
+        const { cdkId, cfnLogicalId } = entry.logicalId;
+        if (existingBody.includes(`'${cdkId}'`)) continue;
+
+        const comments: string[] = [];
+        if (entry.condition) {
+            comments.push(`// Condition: ${entry.condition}`);
+        }
+        if (entry.dependsOn && entry.dependsOn.length > 0) {
+            comments.push(`// DependsOn: ${entry.dependsOn.join(', ')}`);
+        }
+        comments.push(`// ${cfnLogicalId} (${entry.cfnType})`);
+        comments.push(`// TODO: Review and adjust properties for ${entry.mapping.className}`);
+
+        let rawStatements: string[];
+        if (entry.cfnType === 'AWS::ApiGateway::Resource') {
+            rawStatements = [buildApiGatewayResourceStatement(entry)];
+        } else if (entry.cfnType === 'AWS::ApiGateway::Method') {
+            rawStatements = [buildApiGatewayMethodStatement(entry)];
+        } else if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
+            rawStatements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
+        } else {
+            rawStatements = [buildConstructStatement(entry)];
+        }
+
+        const processedStatements = rawStatements.map(s => {
+            const { code, apigwImports } = processApigwStatement(s);
+            for (const name of apigwImports) allApigwImports.add(name);
+            return code;
+        });
+
+        allGeneratedCode.push([...comments, ...processedStatements].join('\n'));
+        ctor.addStatements([...comments, ...processedStatements].join('\n'));
+    }
+
+    // --- Imports (added after collecting all needed names) ---
+    const addNsImport = (alias: string, from: string) => {
+        if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === from)) {
+            sourceFile.addImportDeclaration({ namespaceImport: alias, moduleSpecifier: from });
+        }
+    };
+    const addNamedImport = (names: string[], from: string) => {
+        if (!sourceFile.getImportDeclaration(d => d.getModuleSpecifierValue() === from)) {
+            sourceFile.addImportDeclaration({ namedImports: names, moduleSpecifier: from });
+        }
+    };
+
+    if (
+        allGeneratedCode.some(c => c.includes('cdk.')) ||
+        (hasLambdaIntegrations && existingBody.includes('lambdas ??'))
+    ) {
+        addNsImport('cdk', 'aws-cdk-lib');
+    }
+
+    if (allApigwImports.size > 0) {
+        if (
+            !sourceFile.getImportDeclaration(
+                d => d.getModuleSpecifierValue() === 'aws-cdk-lib/aws-apigateway'
+            )
+        ) {
+            sourceFile.addImportDeclaration({
+                namedImports: [...allApigwImports].sort(),
+                moduleSpecifier: 'aws-cdk-lib/aws-apigateway',
+            });
+        }
+    }
+
+    addNamedImport(['Construct'], 'constructs');
+
+    if (hasLambdaIntegrations) {
+        if (
+            !sourceFile.getImportDeclaration(
+                d => d.getModuleSpecifierValue() === './lambda-functions.js'
+            )
+        ) {
+            sourceFile.addImportDeclaration({
+                namedImports: ['lambdaFunctions'],
+                moduleSpecifier: './lambda-functions.js',
+                isTypeOnly: true,
+            });
+        }
+    }
+
+    project.saveSync();
 }
