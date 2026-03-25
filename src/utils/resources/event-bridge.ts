@@ -1,5 +1,11 @@
 import type { ResourceEntry } from '../../types/index.js';
-import { detectIntrinsic, generateCdkId, pascalToCamel, valueToTs } from '../cfn-to-ts.js';
+import {
+    detectIntrinsic,
+    generateCdkId,
+    pascalToCamel,
+    resolveLogicalId,
+    valueToTs,
+} from '../cfn-to-ts.js';
 import { buildConstructStatement } from '../resource-processor.js';
 
 /**
@@ -40,12 +46,7 @@ function resolveInputTransformer(inputTransformer: Record<string, unknown>): str
 function resolveEventTarget(target: Record<string, unknown>, allEntries: ResourceEntry[]): string {
     const intrinsic = detectIntrinsic(target['Arn']);
 
-    const logicalId =
-        intrinsic?.fn === 'Fn::GetAtt'
-            ? (intrinsic.arg as [string, string])[0]
-            : intrinsic?.fn === 'Ref'
-              ? (intrinsic.arg as string)
-              : null;
+    const logicalId = resolveLogicalId(intrinsic);
 
     const inputOpt =
         target['InputTransformer'] && typeof target['InputTransformer'] === 'object'

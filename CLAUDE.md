@@ -47,6 +47,10 @@ bin/
 └── dev.js                 # Development entry point (tsx)
 ```
 
+## Workflow Rules
+
+- After every code modification, run `pnpm run lint` and fix any errors before considering the task complete.
+
 ## Coding Conventions
 
 - **Classes**: PascalCase; **Functions**: camelCase; **Constants**: UPPER_SNAKE_CASE

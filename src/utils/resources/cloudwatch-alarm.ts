@@ -1,5 +1,11 @@
 import type { ResourceEntry } from '../../types/index.js';
-import { detectIntrinsic, generateCdkId, pascalToCamel, valueToTs } from '../cfn-to-ts.js';
+import {
+    detectIntrinsic,
+    generateCdkId,
+    pascalToCamel,
+    resolveLogicalId,
+    valueToTs,
+} from '../cfn-to-ts.js';
 import { buildConstructStatement } from '../resource-processor.js';
 
 /**
@@ -9,12 +15,7 @@ import { buildConstructStatement } from '../resource-processor.js';
 function resolveAlarmAction(actionArn: unknown, allEntries: ResourceEntry[]): string {
     const intrinsic = detectIntrinsic(actionArn);
 
-    const logicalId =
-        intrinsic?.fn === 'Fn::GetAtt'
-            ? (intrinsic.arg as [string, string])[0]
-            : intrinsic?.fn === 'Ref'
-              ? (intrinsic.arg as string)
-              : null;
+    const logicalId = resolveLogicalId(intrinsic);
 
     if (logicalId) {
         const varName = pascalToCamel(generateCdkId(logicalId));

@@ -1,5 +1,12 @@
 import type { CdkMapping } from '../types/index.js';
-import { detectIntrinsic, generateCdkId, pascalToCamel, RawTs, valueToTs } from './cfn-to-ts.js';
+import {
+    detectIntrinsic,
+    generateCdkId,
+    pascalToCamel,
+    RawTs,
+    resolveLogicalId,
+    valueToTs,
+} from './cfn-to-ts.js';
 
 interface Integration {
     Type?: string;
@@ -29,17 +36,12 @@ export const IGNORE_LOGICAL_IDS = new Set<string>([
  * - `Fn::GetAtt: [RestApiId, RootResourceId]` → `restApiVar.root`
  * - `Ref: ResourceLogicalId` → `resourceVar`
  */
-function resolveParentExpr(v: unknown): string {
-    const intrinsic = detectIntrinsic(v);
-    if (intrinsic?.fn === 'Fn::GetAtt') {
-        const [logicalId] = intrinsic.arg as [string, string];
-        return `${pascalToCamel(generateCdkId(logicalId))}.root`;
-    }
-    if (intrinsic?.fn === 'Ref') {
-        const logicalId = intrinsic.arg as string;
-        return pascalToCamel(generateCdkId(logicalId));
-    }
-    return `/* TODO: resolve parent reference */`;
+function resolveParentExpr(ref: unknown): string {
+    const intrinsic = detectIntrinsic(ref);
+    const logicalId = resolveLogicalId(intrinsic);
+    if (!logicalId) return `/* TODO: resolve parent reference */`;
+    const varName = pascalToCamel(generateCdkId(logicalId));
+    return intrinsic!.fn === 'Fn::GetAtt' ? `${varName}.root` : varName;
 }
 
 /**
@@ -51,12 +53,13 @@ function resolveParentExpr(v: unknown): string {
 function joinPartToSubFragment(part: unknown): string {
     if (typeof part === 'string') return part;
     const intrinsic = detectIntrinsic(part);
-    if (intrinsic?.fn === 'Ref') return `\${${intrinsic.arg as string}}`;
-    if (intrinsic?.fn === 'Fn::GetAtt') {
-        const [logicalId, attr] = intrinsic.arg as [string, string];
+    const logicalId = resolveLogicalId(intrinsic);
+    if (!logicalId) return '';
+    if (intrinsic!.fn === 'Fn::GetAtt') {
+        const [, attr] = intrinsic!.arg as [string, string];
         return `\${${logicalId}.${attr}}`;
     }
-    return '';
+    return `\${${logicalId}}`;
 }
 
 /**
@@ -551,10 +554,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                         maxReceiveCount?: unknown;
                     };
                     const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
-                    const dlqLogicalId =
-                        intrinsic?.fn === 'Fn::GetAtt'
-                            ? (intrinsic.arg as [string, string])[0]
-                            : null;
+                    const dlqLogicalId = resolveLogicalId(intrinsic);
                     const dlqVar = dlqLogicalId
                         ? pascalToCamel(generateCdkId(dlqLogicalId))
                         : `/* TODO: resolve dead-letter queue */`;
@@ -591,10 +591,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                 v => {
                     const policy = (v ?? {}) as { deadLetterTargetArn?: unknown };
                     const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
-                    const dlqLogicalId =
-                        intrinsic?.fn === 'Fn::GetAtt'
-                            ? (intrinsic.arg as [string, string])[0]
-                            : null;
+                    const dlqLogicalId = resolveLogicalId(intrinsic);
                     const dlqVar = dlqLogicalId
                         ? pascalToCamel(generateCdkId(dlqLogicalId))
                         : `/* TODO: resolve dead-letter queue */`;
@@ -616,7 +613,20 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                             : v,
                 }),
             ],
-            ['Endpoint', v => ({ endpoint: new RawTs(valueToTs(v)) })],
+            [
+                'Endpoint',
+                v => {
+                    const intrinsic = detectIntrinsic(v);
+                    const logicalId = resolveLogicalId(intrinsic);
+                    if (!logicalId) return { endpoint: new RawTs(valueToTs(v)) };
+                    const varName = pascalToCamel(generateCdkId(logicalId));
+                    if (intrinsic!.fn === 'Fn::GetAtt') {
+                        const [, attribute] = intrinsic!.arg as [string, string];
+                        return { endpoint: new RawTs(`${varName}.attr${attribute}`) };
+                    }
+                    return { endpoint: new RawTs(varName) };
+                },
+            ],
             [
                 'FilterPolicy',
                 v => {

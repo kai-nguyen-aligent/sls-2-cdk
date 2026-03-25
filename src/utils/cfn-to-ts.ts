@@ -91,6 +91,19 @@ export function detectIntrinsic(value: unknown): { fn: string; arg: unknown } | 
 }
 
 /**
+ * Extracts the logical resource ID from a `Ref` or `Fn::GetAtt` intrinsic, or returns null.
+ * - `Ref: LogicalId` → `LogicalId`
+ * - `Fn::GetAtt: [LogicalId, Attr]` → `LogicalId`
+ */
+export function resolveLogicalId(
+    intrinsic: { fn: string; arg: unknown } | null | undefined
+): string | null {
+    if (intrinsic?.fn === 'Fn::GetAtt') return (intrinsic.arg as [string, string])[0];
+    if (intrinsic?.fn === 'Ref') return intrinsic.arg as string;
+    return null;
+}
+
+/**
  * Converts a CloudFormation intrinsic function to CDK TypeScript code.
  */
 function intrinsicToTs(fn: string, arg: unknown): string {
