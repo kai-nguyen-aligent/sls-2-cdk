@@ -48,16 +48,22 @@ export function pascalToCamel(str: string): string {
 }
 
 /**
- * Converts a service prefix (e.g. `acg-int`) to the PascalCase form used in
- * CloudFormation logical IDs after Serverless Framework processing
- * (e.g. `acg-int` → `AcgInt`).
+ * Converts a service prefix (e.g. `acg-int`) to the candidate forms it may take
+ * in a CloudFormation logical ID after Serverless Framework processing:
+ * - Per-segment capitalised: `AcgInt`
+ * - First-letter-only capitalised: `Acgint`
+ *
+ * SLS is inconsistent — both forms appear in practice.
  */
-export function servicePrefixToPascal(prefix: string): string {
-    return prefix
+export function convertServicePrefix(prefix: string): [string, string] {
+    const perSegment = prefix
         .split(/[-_]/)
         .filter(Boolean)
         .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
         .join('');
+    const flat = prefix.replace(/[-_]/g, '');
+    const firstLetterOnly = flat.charAt(0).toUpperCase() + flat.slice(1).toLowerCase();
+    return [perSegment, firstLetterOnly];
 }
 
 /**
@@ -66,18 +72,16 @@ export function servicePrefixToPascal(prefix: string): string {
  * and an optional service prefix (e.g. `AcgInt` stripped from `AcgIntMyFunc`).
  */
 export function generateCdkId(logicalId: string, servicePrefix?: string): string {
-    const sanitized = logicalId.replace(/Dash|Underscore/g, '');
-    let result = sanitized;
+    let result = logicalId.replace(/Dash|Underscore/g, '');
+
     if (servicePrefix) {
-        const pascalPrefix = servicePrefixToPascal(servicePrefix);
-        if (result.startsWith(pascalPrefix) && result.length > pascalPrefix.length) {
-            result = result.slice(pascalPrefix.length);
+        for (const candidate of convertServicePrefix(servicePrefix)) {
+            result = result.replaceAll(candidate, '');
         }
     }
+
     for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
-        if (result.endsWith(suffix) && result.length > suffix.length) {
-            return result.slice(0, -suffix.length);
-        }
+        result = result.replaceAll(suffix, '');
     }
     return result;
 }
