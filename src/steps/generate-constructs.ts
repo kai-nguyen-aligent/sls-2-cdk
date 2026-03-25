@@ -10,10 +10,13 @@ import type {
     ResourceEntry,
     StateMachineDefinitionInfo,
 } from '../types/index.js';
-import { pascalToCamel, RawTs, valueToTs } from '../utils/cfn-to-ts.js';
+import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
 import { buildConstructStatement, resolveResources } from '../utils/resource-processor.js';
 import { CFN_TYPE_ORDER } from '../utils/resources-config.js';
-import { generateApiGatewayFile } from '../utils/resources/api-gateway.js';
+import {
+    extractApiGwIntegrationVarNames,
+    generateApiGatewayFile,
+} from '../utils/resources/api-gateway.js';
 import { buildAlarmStatements } from '../utils/resources/cloudwatch-alarm.js';
 import { buildEventRuleStatements } from '../utils/resources/event-bridge.js';
 import {
@@ -161,7 +164,7 @@ function ensureImports(
     }
 }
 
-function applyToSourceFile(
+function generateIndexFile(
     sourceFile: SourceFile,
     nonLambdaEntries: ResourceEntry[],
     moduleAliases: Map<string, string>,
@@ -210,32 +213,11 @@ function applyToSourceFile(
         );
     }
 
-    // Determine if API GW needs lambdas passed to it
-    const hasApiGwLambdaIntegrations = apiGwEntries.some(
-        e =>
-            e.cfnType === 'AWS::ApiGateway::Method' &&
-            e.properties['integrationRef'] instanceof RawTs &&
-            (e.properties['integrationRef'] as RawTs).code.includes('LambdaIntegration')
-    );
-
     if (lambdaEntries.length > 0 && !existingBody.includes('lambdaFunctions(')) {
         const lambdaVarNames = lambdaEntries.map(e => pascalToCamel(e.logicalId.cdkId));
-        if (apiGwEntries.length > 0 && hasApiGwLambdaIntegrations) {
-            // Keep lambdas as an object so it can be passed to ApiGatewayResources
-            ctor.addStatements(
-                `const lambdas = lambdaFunctions(this, props);\n` +
-                    `const { ${lambdaVarNames.join(', ')} } = lambdas;`
-            );
-        } else {
-            ctor.addStatements(
-                `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props);`
-            );
-        }
-    }
-
-    if (apiGwEntries.length > 0 && !existingBody.includes('ApiGatewayResources(')) {
-        const lambdaArg = lambdaEntries.length > 0 && hasApiGwLambdaIntegrations ? ', lambdas' : '';
-        ctor.addStatements(`new ApiGatewayResources(this${lambdaArg});`);
+        ctor.addStatements(
+            `const { ${lambdaVarNames.join(', ')} } = lambdaFunctions(this, props);`
+        );
     }
 
     for (const entry of nonLambdaEntries) {
@@ -275,6 +257,24 @@ function applyToSourceFile(
 
         ctor.addStatements([...comments, buildConstructStatement(entry)].join('\n'));
     }
+
+    if (apiGwEntries.length > 0 && !existingBody.includes('ApiGatewayResources(')) {
+        const { lambdaVarNames, sqsVarNames, sfnVarNames } =
+            extractApiGwIntegrationVarNames(apiGwEntries);
+
+        const args: string[] = ['this'];
+        if (lambdaVarNames.length > 0) {
+            args.push(`lambdas: { ${lambdaVarNames.join(', ')} }`);
+        }
+        if (sqsVarNames.length > 0) {
+            args.push(`queues: { ${sqsVarNames.join(', ')} }`);
+        }
+        if (sfnVarNames.length > 0) {
+            args.push(`stateMachines: { ${sfnVarNames.join(', ')} }`);
+        }
+
+        ctor.addStatements(`new ApiGatewayResources(${args.join(', ')});`);
+    }
 }
 
 /**
@@ -302,10 +302,9 @@ export function generateConstructs(
     }
 
     const { entries, generated, skipped } = resolveResources(template, keepNames);
+    const commonEnvKeys = new Set(sharedEnvVars.map(v => v.name));
 
     const lambdaEntries = entries.filter(e => e.cfnType === 'AWS::Lambda::Function');
-
-    const commonEnvKeys = new Set(sharedEnvVars.map(v => v.name));
     generateLambdaFunctionsFile(
         lambdaEntries,
         sharedEnvVars,
@@ -317,8 +316,7 @@ export function generateConstructs(
     const apiGwEntries = entries
         .filter(e => API_GW_TYPES.has(e.cfnType))
         .sort((a, b) => (CFN_TYPE_ORDER[a.cfnType] ?? 0) - (CFN_TYPE_ORDER[b.cfnType] ?? 0));
-
-    generateApiGatewayFile(apiGwEntries, lambdaEntries, destinationServicePath);
+    generateApiGatewayFile(apiGwEntries, destinationServicePath);
 
     const nonLambdaEntries = entries
         .filter(e => e.cfnType !== 'AWS::Lambda::Function' && !API_GW_TYPES.has(e.cfnType))
@@ -335,7 +333,7 @@ export function generateConstructs(
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);
 
-    applyToSourceFile(
+    generateIndexFile(
         sourceFile,
         nonLambdaEntries,
         nonLambdaModuleAliases,

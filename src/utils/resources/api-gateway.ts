@@ -31,8 +31,6 @@ function buildUsagePlanStatements(
 }
 
 function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
-    const { cdkId } = entry.logicalId;
-    const varName = pascalToCamel(cdkId);
     const props = { ...entry.properties };
 
     const resourceRef = props['resourceRef'];
@@ -48,7 +46,7 @@ function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
         integrationRef instanceof RawTs ? integrationRef.code : `/* TODO: add integration */`;
     const optionsTs = Object.keys(props).length > 0 ? `, ${valueToTs(props)}` : '';
 
-    return `const ${varName} = ${resourceExpr}.addMethod(${valueToTs(httpMethod)}, ${integrationExpr}${optionsTs});`;
+    return `${resourceExpr}.addMethod(${valueToTs(httpMethod)}, ${integrationExpr}${optionsTs});`;
 }
 
 function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
@@ -79,22 +77,51 @@ function processApigwStatement(statement: string): { code: string; apigwImports:
     return { code, apigwImports };
 }
 
-// KAI: support other integrations: SQS, SFN
 /**
- * Scans API Gateway Method entries and extracts lambda variable names referenced
- * in LambdaIntegration expressions (e.g. `new LambdaIntegration(myLambda)`).
+ * Scans API Gateway Method entries and extracts variable names referenced in each
+ * integration type: LambdaIntegration, AwsIntegration (SQS), and StepFunctionsIntegration.
  */
-function findReferencedLambdaVars(entries: ResourceEntry[]): string[] {
-    const vars = new Set<string>();
-    for (const entry of entries) {
-        if (entry.cfnType !== 'AWS::ApiGateway::Method') continue;
-        const integrationRef = entry.properties['integrationRef'];
-        if (integrationRef instanceof RawTs) {
-            const match = /new apigw\.LambdaIntegration\((\w+)\)/.exec(integrationRef.code);
-            if (match?.[1]) vars.add(match[1]);
-        }
-    }
-    return [...vars];
+export function extractApiGwIntegrationVarNames(apiGwEntries: ResourceEntry[]): {
+    lambdaVarNames: string[];
+    sqsVarNames: string[];
+    sfnVarNames: string[];
+} {
+    const apiGwMethodEntries = apiGwEntries.filter(
+        e =>
+            e.cfnType === 'AWS::ApiGateway::Method' &&
+            e.properties['integrationRef'] instanceof RawTs
+    );
+    const lambdaVarNames = [
+        ...new Set(
+            apiGwMethodEntries.flatMap(e => {
+                const match = /new apigw\.LambdaIntegration\((\w+)\)/.exec(
+                    (e.properties['integrationRef'] as RawTs).code
+                );
+                return match?.[1] ? [match[1]] : [];
+            })
+        ),
+    ];
+    const sqsVarNames = [
+        ...new Set(
+            apiGwMethodEntries.flatMap(e => {
+                const match = /\$\{(\w+)\.queueName\}/.exec(
+                    (e.properties['integrationRef'] as RawTs).code
+                );
+                return match?.[1] ? [match[1]] : [];
+            })
+        ),
+    ];
+    const sfnVarNames = [
+        ...new Set(
+            apiGwMethodEntries.flatMap(e => {
+                const match = /StepFunctionsIntegration\.startExecution\((\w+)\)/.exec(
+                    (e.properties['integrationRef'] as RawTs).code
+                );
+                return match?.[1] ? [match[1]] : [];
+            })
+        ),
+    ];
+    return { lambdaVarNames, sqsVarNames, sfnVarNames };
 }
 
 /**
@@ -103,10 +130,11 @@ function findReferencedLambdaVars(entries: ResourceEntry[]): string[] {
  * - Exports an `ApiGatewayResources` class.
  * - Uses named imports from `aws-cdk-lib/aws-apigateway`.
  * - Accepts the lambda functions object when Lambda integrations are present.
+ * - Accepts SQS queues when AwsIntegration (SQS) integrations are present.
+ * - Accepts Step Functions state machines when StepFunctionsIntegration integrations are present.
  */
 export function generateApiGatewayFile(
     apiGwEntries: ResourceEntry[],
-    lambdaEntries: ResourceEntry[],
     destinationServicePath: string
 ): void {
     if (apiGwEntries.length === 0) return;
@@ -121,8 +149,12 @@ export function generateApiGatewayFile(
         ? project.addSourceFileAtPath(outputPath)
         : project.createSourceFile(outputPath, '/* v8 ignore start - infrastructure code */\n');
 
-    const referencedLambdaVarNames = findReferencedLambdaVars(apiGwEntries);
-    const hasLambdaIntegrations = referencedLambdaVarNames.length > 0 && lambdaEntries.length > 0;
+    const { lambdaVarNames, sqsVarNames, sfnVarNames } =
+        extractApiGwIntegrationVarNames(apiGwEntries);
+
+    const hasLambdaIntegrations = lambdaVarNames.length > 0;
+    const hasSqsIntegrations = sqsVarNames.length > 0;
+    const hasSfnIntegrations = sfnVarNames.length > 0;
 
     // --- Class and constructor ---
     let cls = sourceFile.getClass('ApiGatewayResources');
@@ -136,16 +168,30 @@ export function generateApiGatewayFile(
     if (hasLambdaIntegrations) {
         ctorParams.push({ name: 'lambdas?', type: 'ReturnType<typeof lambdaFunctions>' });
     }
+    if (hasSqsIntegrations) {
+        ctorParams.push({ name: 'queues?', type: 'Record<string, sqs.Queue>' });
+    }
+    if (hasSfnIntegrations) {
+        ctorParams.push({ name: 'stateMachines?', type: 'Record<string, sfn.StateMachine>' });
+    }
 
     const ctor = cls.getConstructors()[0] ?? cls.addConstructor({ parameters: ctorParams });
 
     const existingBody = ctor.getBody()?.getText() ?? '';
 
     // Lambda destructuring
-    if (hasLambdaIntegrations && !existingBody.includes('lambdas ??')) {
-        ctor.addStatements(
-            `const { ${referencedLambdaVarNames.join(', ')} } = lambdas ?? {} as ReturnType<typeof lambdaFunctions>;`
-        );
+    if (hasLambdaIntegrations && !existingBody.includes('lambdas')) {
+        ctor.addStatements(`const { ${lambdaVarNames.join(', ')} } = lambdas;`);
+    }
+
+    // SQS destructuring
+    if (hasSqsIntegrations && !existingBody.includes('queues')) {
+        ctor.addStatements(`const { ${sqsVarNames.join(', ')} } = queues;`);
+    }
+
+    // SFN destructuring
+    if (hasSfnIntegrations && !existingBody.includes('stateMachines')) {
+        ctor.addStatements(`const { ${sfnVarNames.join(', ')} } = stateMachines;`);
     }
 
     // --- Resource instantiations ---
@@ -206,6 +252,14 @@ export function generateApiGatewayFile(
         (hasLambdaIntegrations && existingBody.includes('lambdas ??'))
     ) {
         addNsImport('cdk', 'aws-cdk-lib');
+    }
+
+    if (hasSqsIntegrations) {
+        addNsImport('sqs', 'aws-cdk-lib/aws-sqs');
+    }
+
+    if (hasSfnIntegrations) {
+        addNsImport('sfn', 'aws-cdk-lib/aws-stepfunctions');
     }
 
     if (allApigwImports.size > 0) {

@@ -537,4 +537,100 @@ describe('generateConstructs', () => {
         expect(apiGwContent).toContain('import type { lambdaFunctions }');
         expect(apiGwContent).toContain('new LambdaIntegration(myFunc)');
     });
+
+    it('should pass SQS queues to ApiGatewayResources when AwsIntegration (SQS) is present', () => {
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyQueue: { Type: 'AWS::SQS::Queue', Properties: {} },
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyResource: {
+                    Type: 'AWS::ApiGateway::Resource',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ParentId: { 'Fn::GetAtt': ['MyRestApi', 'RootResourceId'] },
+                        PathPart: 'messages',
+                    },
+                },
+                MyMethod: {
+                    Type: 'AWS::ApiGateway::Method',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ResourceId: { Ref: 'MyResource' },
+                        HttpMethod: 'POST',
+                        Integration: {
+                            Type: 'AWS',
+                            Uri: {
+                                'Fn::Sub':
+                                    'arn:aws:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${MyQueue.QueueName}',
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const indexContent = fs.readFileSync(result.outputPath, 'utf-8');
+        const apiGwContent = readApiGatewayFile();
+
+        // index.ts passes the queue var to ApiGatewayResources
+        expect(indexContent).toContain('new ApiGatewayResources(this, undefined, { myQueue })');
+
+        // api-gateway.ts has sqs import and queues param with destructuring
+        expect(apiGwContent).toContain('import * as sqs from "aws-cdk-lib/aws-sqs"');
+        expect(apiGwContent).toContain('queues?');
+        expect(apiGwContent).toContain('queues ??');
+        expect(apiGwContent).toContain('new AwsIntegration(');
+    });
+
+    it('should pass state machines to ApiGatewayResources when StepFunctionsIntegration is present', () => {
+        // MyStateMachine is intentionally absent from Resources — the test focuses on the
+        // API GW wiring, not on state machine construct generation.
+        const template: CloudFormationTemplate = {
+            Resources: {
+                MyRestApi: { Type: 'AWS::ApiGateway::RestApi', Properties: {} },
+                MyResource: {
+                    Type: 'AWS::ApiGateway::Resource',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ParentId: { 'Fn::GetAtt': ['MyRestApi', 'RootResourceId'] },
+                        PathPart: 'execute',
+                    },
+                },
+                MyMethod: {
+                    Type: 'AWS::ApiGateway::Method',
+                    Properties: {
+                        RestApiId: { Ref: 'MyRestApi' },
+                        ResourceId: { Ref: 'MyResource' },
+                        HttpMethod: 'POST',
+                        Integration: {
+                            Type: 'AWS',
+                            Uri: {
+                                'Fn::Sub':
+                                    'arn:aws:apigateway:${AWS::Region}:states:action/StartExecution',
+                            },
+                            RequestTemplates: {
+                                'application/json': {
+                                    'Fn::Sub': '{"stateMachineArn": "${MyStateMachine.Arn}"}',
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const result = generateConstructs(template, false, tmpDir, {});
+        const indexContent = fs.readFileSync(result.outputPath, 'utf-8');
+        const apiGwContent = readApiGatewayFile();
+
+        // index.ts passes the state machine var to ApiGatewayResources
+        expect(indexContent).toContain(
+            'new ApiGatewayResources(this, undefined, undefined, { myStateMachine })'
+        );
+
+        // api-gateway.ts has sfn import and stateMachines param with destructuring
+        expect(apiGwContent).toContain('import * as sfn from "aws-cdk-lib/aws-stepfunctions"');
+        expect(apiGwContent).toContain('stateMachines?');
+        expect(apiGwContent).toContain('stateMachines ??');
+        expect(apiGwContent).toContain('StepFunctionsIntegration.startExecution(myStateMachine)');
+    });
 });
