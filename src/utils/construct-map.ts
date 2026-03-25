@@ -238,14 +238,17 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
         ]),
     },
-    'AWS::Lambda::Permission': {
-        cdkModule: 'aws-cdk-lib/aws-lambda',
-        importAlias: 'lambda',
-        // Not instantiated with `new` — generated via fn.addPermission(id, options)
-        className: 'Permission',
-        cfnNameProp: '',
-        omitProps: new Set(),
-    },
+    // KAI: We do not want this as Serverless create 1 permission for all
+    // May need to double check if any other kind of permission or remove by logicalID
+    // 'AWS::Lambda::Permission': {
+    //     cdkModule: 'aws-cdk-lib/aws-lambda',
+    //     importAlias: 'lambda',
+    //     // Not instantiated with `new` — generated via fn.addPermission(id, options)
+    //     className: 'Permission',
+    //     cfnNameProp: '',
+    //     omitProps: new Set(),
+    //     // handle sourceArn, transform to CDK reference
+    // },
 
     // DynamoDB
     'AWS::DynamoDB::Table': {
@@ -254,6 +257,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Table',
         cfnNameProp: 'TableName',
         omitProps: new Set(),
+        // KAI: handle BillingMode in propExpansions
         propExpansions: new Map([
             [
                 'AttributeDefinitions',
@@ -511,6 +515,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Queue',
         cfnNameProp: 'QueueName',
         omitProps: new Set(),
+        // KAI propExpansions handle visibilityTimeout, fifoQueue
     },
 
     // SNS
@@ -520,7 +525,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Topic',
         cfnNameProp: 'TopicName',
         // Subscriptions are added via topic.addSubscription() — they should be separate AWS::SNS::Subscription resources
-        omitProps: new Set(['Subscription']),
+        omitProps: new Set(['Subscription', 'KmsMasterKeyId']),
     },
     'AWS::SNS::Subscription': {
         cdkModule: 'aws-cdk-lib/aws-sns',
@@ -529,6 +534,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: '',
         // RedrivePolicy is replaced by deadLetterQueue: IQueue construct reference in L2
         omitProps: new Set(['RedrivePolicy']),
+        // KAI: handle protocol, endpoint, filterPolicy-
         propExpansions: new Map([
             [
                 'TopicArn',
@@ -582,6 +588,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Alarm',
         cfnNameProp: 'AlarmName',
         omitProps: new Set(),
+        // KAI add propExpansions for Dimensions, ComparisonOperator, TreatMissingData
     },
 
     // SSM
