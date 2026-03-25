@@ -45,9 +45,12 @@ function discoverRuntimeItems(servicePath: string): RuntimeItem[] {
     return items.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 }
 
-// TODO: set default for runtime migration folders:
-// - src -> src/runtime
-// - everything under src -> under src/runtime. eg: src/lambda -> src/runtime/handlers
+function getDefaultDestFolder(folderLabel: string): string {
+    if (folderLabel === 'src' || folderLabel.startsWith('src/')) {
+        return folderLabel.replace(/^src/, 'src/runtime');
+    }
+    return folderLabel;
+}
 
 /**
  * Recursively prompts the user to copy an entire folder or decide per subfolder.
@@ -60,7 +63,7 @@ async function promptFolderCopy(
 ): Promise<FolderCopyOperation[]> {
     const destFolder = await input({
         message: `Destination for folder "${folderLabel}" (relative to ${destPath}):`,
-        default: folderLabel,
+        default: getDefaultDestFolder(folderLabel),
     });
     const dest = path.join(destPath, destFolder);
 
