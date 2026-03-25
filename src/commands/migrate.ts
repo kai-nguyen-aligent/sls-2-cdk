@@ -46,6 +46,10 @@ export default class Migrate extends Command {
             char: 'd',
             description: 'Destination CDK workspace directory (bootstrapped with @aligent/nx-cdk)',
         }),
+        'service-prefix': Flags.string({
+            char: 's',
+            description: 'Service prefix to strip from CDK IDs and variable names (e.g. sls-int)',
+        }),
     };
 
     async run(): Promise<void> {
@@ -91,6 +95,15 @@ export default class Migrate extends Command {
                   })
               );
 
+        const rawServicePrefix =
+            flags['service-prefix'] ??
+            (await input({
+                message:
+                    'Service prefix to strip from CDK IDs and variable names (e.g. acg-int, sls-int). Leave blank to skip:',
+                default: '',
+            }));
+        const servicePrefix = rawServicePrefix || undefined;
+
         const error = validateCdkWorkspace(destinationDir);
         if (error) {
             this.error(String(error), { exit: 1 });
@@ -111,7 +124,8 @@ export default class Migrate extends Command {
             rootDir,
             intermediateDir,
             destinationDir,
-            keepNames
+            keepNames,
+            servicePrefix
         );
 
         this.log('\nServerless project migrated.');
@@ -122,7 +136,8 @@ export default class Migrate extends Command {
         rootDir: string,
         intermediateDir: string,
         destinationDir: string,
-        keepNames: boolean
+        keepNames: boolean,
+        servicePrefix?: string
     ): Promise<void> {
         const servicePath = path.dirname(serverlessYmlPath);
         const relServicePath = path.relative(rootDir, servicePath);
@@ -189,7 +204,8 @@ export default class Migrate extends Command {
                 genResult.data,
                 smResult.data.definitions,
                 envMapResult.data.sharedVariables,
-                ssmPlaceholderMap
+                ssmPlaceholderMap,
+                servicePrefix
             )
         );
 

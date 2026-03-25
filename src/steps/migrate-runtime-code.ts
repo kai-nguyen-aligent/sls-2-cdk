@@ -45,6 +45,10 @@ function discoverRuntimeItems(servicePath: string): RuntimeItem[] {
     return items.sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 }
 
+// TODO: set default for runtime migration folders:
+// - src -> src/runtime
+// - everything under src -> under src/runtime. eg: src/lambda -> src/runtime/handlers
+
 /**
  * Recursively prompts the user to copy an entire folder or decide per subfolder.
  * Returns a flat list of copy operations to perform.

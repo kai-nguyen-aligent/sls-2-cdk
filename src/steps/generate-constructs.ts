@@ -294,14 +294,15 @@ export function generateConstructs(
     destinationServicePath: string,
     stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
     sharedEnvVars: EnvVarEntry[] = [],
-    ssmPlaceholderMap: Map<string, string> = new Map()
+    ssmPlaceholderMap: Map<string, string> = new Map(),
+    servicePrefix?: string
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {
         throw new Error(`Output file not found: ${outputPath}`);
     }
 
-    const { entries, generated, skipped } = resolveResources(template, keepNames);
+    const { entries, generated, skipped } = resolveResources(template, keepNames, servicePrefix);
     const commonEnvKeys = new Set(sharedEnvVars.map(v => v.name));
 
     const lambdaEntries = entries.filter(e => e.cfnType === 'AWS::Lambda::Function');

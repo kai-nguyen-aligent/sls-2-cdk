@@ -48,17 +48,38 @@ export function pascalToCamel(str: string): string {
 }
 
 /**
- * Derives a CDK construct ID from a CloudFormation logical ID by stripping
- * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`).
+ * Converts a service prefix (e.g. `acg-int`) to the PascalCase form used in
+ * CloudFormation logical IDs after Serverless Framework processing
+ * (e.g. `acg-int` → `AcgInt`).
  */
-export function generateCdkId(logicalId: string): string {
+export function servicePrefixToPascal(prefix: string): string {
+    return prefix
+        .split(/[-_]/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join('');
+}
+
+/**
+ * Derives a CDK construct ID from a CloudFormation logical ID by stripping
+ * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`)
+ * and an optional service prefix (e.g. `AcgInt` stripped from `AcgIntMyFunc`).
+ */
+export function generateCdkId(logicalId: string, servicePrefix?: string): string {
     const sanitized = logicalId.replace(/Dash|Underscore/g, '');
-    for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
-        if (sanitized.endsWith(suffix) && sanitized.length > suffix.length) {
-            return sanitized.slice(0, -suffix.length);
+    let result = sanitized;
+    if (servicePrefix) {
+        const pascalPrefix = servicePrefixToPascal(servicePrefix);
+        if (result.startsWith(pascalPrefix) && result.length > pascalPrefix.length) {
+            result = result.slice(pascalPrefix.length);
         }
     }
-    return sanitized;
+    for (const suffix of SLS_LOGICAL_ID_SUFFIXES) {
+        if (result.endsWith(suffix) && result.length > suffix.length) {
+            return result.slice(0, -suffix.length);
+        }
+    }
+    return result;
 }
 
 /** Returns true if the key is a valid JS identifier and can be used unquoted. */

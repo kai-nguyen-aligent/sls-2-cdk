@@ -53,7 +53,8 @@ function processProperties(
 
 export function resolveResources(
     template: CloudFormationTemplate,
-    keepNames: boolean
+    keepNames: boolean,
+    servicePrefix?: string
 ): ResolvedResources {
     const entries: ResourceEntry[] = [];
     const moduleAliases = new Map<string, string>();
@@ -89,7 +90,7 @@ export function resolveResources(
                 : [resource.DependsOn]
             : undefined;
 
-        const cdkId = generateCdkId(logicalId);
+        const cdkId = generateCdkId(logicalId, servicePrefix);
         const properties: Record<string, unknown> = processProperties(
             mapping,
             keepNames,
