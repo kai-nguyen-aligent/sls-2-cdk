@@ -256,8 +256,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'dynamodb',
         className: 'Table',
         cfnNameProp: 'TableName',
-        omitProps: new Set(),
-        // KAI: handle BillingMode in propExpansions
+        omitProps: new Set(['BillingMode', 'ProvisionedThroughput']),
         propExpansions: new Map([
             [
                 'AttributeDefinitions',
@@ -515,7 +514,61 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Queue',
         cfnNameProp: 'QueueName',
         omitProps: new Set(),
-        // KAI propExpansions handle visibilityTimeout, fifoQueue
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            [
+                'VisibilityTimeout',
+                v => ({
+                    visibilityTimeout:
+                        typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v,
+                }),
+            ],
+            ['FifoQueue', v => ({ fifo: v })],
+            [
+                'MessageRetentionPeriod',
+                v => ({
+                    retentionPeriod:
+                        typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v,
+                }),
+            ],
+            [
+                'ReceiveMessageWaitTimeSeconds',
+                v => ({
+                    receiveMessageWaitTime:
+                        typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v,
+                }),
+            ],
+            [
+                'DelaySeconds',
+                v => ({
+                    deliveryDelay:
+                        typeof v === 'number' ? new RawTs(`cdk.Duration.seconds(${v})`) : v,
+                }),
+            ],
+            [
+                'RedrivePolicy',
+                v => {
+                    const policy = (v ?? {}) as {
+                        deadLetterTargetArn?: unknown;
+                        maxReceiveCount?: unknown;
+                    };
+                    const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
+                    const dlqLogicalId =
+                        intrinsic?.fn === 'Fn::GetAtt'
+                            ? (intrinsic.arg as [string, string])[0]
+                            : null;
+                    const dlqVar = dlqLogicalId
+                        ? pascalToCamel(generateCdkId(dlqLogicalId))
+                        : `/* TODO: resolve dead-letter queue */`;
+                    const maxReceiveCount = policy.maxReceiveCount ?? 3;
+                    return {
+                        deadLetterQueue: new RawTs(
+                            `{ queue: ${dlqVar}, maxReceiveCount: ${maxReceiveCount} }`
+                        ),
+                    };
+                },
+            ],
+            ['ContentBasedDeduplication', v => ({ contentBasedDeduplication: v })],
+        ]),
     },
 
     // SNS
@@ -534,13 +587,45 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: '',
         // RedrivePolicy is replaced by deadLetterQueue: IQueue construct reference in L2
         omitProps: new Set(['RedrivePolicy']),
-        // KAI: handle protocol, endpoint, filterPolicy-
-        propExpansions: new Map([
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
             [
                 'TopicArn',
                 v => ({
                     topic: new RawTs(`sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v)})`),
                 }),
+            ],
+            [
+                'Protocol',
+                v => ({
+                    protocol:
+                        typeof v === 'string'
+                            ? new RawTs(`sns.SubscriptionProtocol.${v.toUpperCase()}`)
+                            : v,
+                }),
+            ],
+            ['Endpoint', v => ({ endpoint: v })],
+            [
+                'FilterPolicy',
+                v => {
+                    const policy = (v ?? {}) as Record<string, unknown>;
+                    const filterMap: Record<string, unknown> = {};
+                    for (const [attr, conditions] of Object.entries(policy)) {
+                        if (
+                            Array.isArray(conditions) &&
+                            conditions.every(c => typeof c === 'string')
+                        ) {
+                            const allowlist = conditions.map(c => valueToTs(c)).join(', ');
+                            filterMap[attr] = new RawTs(
+                                `sns.SubscriptionFilter.stringFilter({ allowlist: [${allowlist}] })`
+                            );
+                        } else {
+                            filterMap[attr] = new RawTs(
+                                `sns.SubscriptionFilter.stringFilter(/* TODO: convert filter conditions ${valueToTs(conditions)} */)`
+                            );
+                        }
+                    }
+                    return { filterPolicy: filterMap };
+                },
             ],
         ]),
     },
@@ -588,7 +673,45 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Alarm',
         cfnNameProp: 'AlarmName',
         omitProps: new Set(),
-        // KAI add propExpansions for Dimensions, ComparisonOperator, TreatMissingData
+        // KAI: handle AlarmActions
+        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            [
+                'Dimensions',
+                v => {
+                    const dims = (v ?? []) as Array<{ Name: string; Value: unknown }>;
+                    const map: Record<string, unknown> = {};
+                    for (const d of dims) {
+                        map[d.Name] = d.Value;
+                    }
+                    return { dimensionsMap: map };
+                },
+            ],
+            [
+                'ComparisonOperator',
+                v => ({
+                    comparisonOperator:
+                        typeof v === 'string'
+                            ? new RawTs(
+                                  `cw.ComparisonOperator.${v
+                                      .replace(/([A-Z])/g, '_$1')
+                                      .replace(/^_/, '')
+                                      .toUpperCase()}`
+                              )
+                            : v,
+                }),
+            ],
+            [
+                'TreatMissingData',
+                v => ({
+                    treatMissingData:
+                        typeof v === 'string'
+                            ? new RawTs(
+                                  `cw.TreatMissingData.${v.replace(/([A-Z])/g, '_$1').toUpperCase()}`
+                              )
+                            : v,
+                }),
+            ],
+        ]),
     },
 
     // SSM
