@@ -12,6 +12,7 @@ import type {
 } from '../types/index.js';
 import { pascalToCamel, valueToTs } from '../utils/cfn-to-ts.js';
 import { buildConstructStatement, resolveResources } from '../utils/resource-processor.js';
+import { CFN_TYPE_ORDER } from '../utils/resources-config.js';
 import {
     buildApiGatewayMethodStatement,
     buildApiGatewayResourceStatement,
@@ -24,17 +25,6 @@ import {
     resolveEnvValue,
 } from '../utils/resources/lambda-functions.js';
 import { buildStateMachineStatement } from '../utils/resources/state-machine.js';
-
-const CFN_TYPE_ORDER: Record<string, number> = {
-    'AWS::ApiGateway::RestApi': 10,
-    'AWS::ApiGateway::ApiKey': 20,
-    'AWS::ApiGateway::RequestValidator': 30,
-    'AWS::ApiGateway::Resource': 40,
-    'AWS::ApiGateway::Method': 50,
-    'AWS::ApiGateway::UsagePlan': 60,
-
-    'AWS::CloudWatch::Alarm': 100,
-};
 
 function ensureImports(
     sourceFile: SourceFile,

@@ -32,6 +32,82 @@ export const IGNORE_LOGICAL_IDS = new Set<string>([
 ]);
 
 /**
+ * Maps CloudFormation resource type + GetAtt attribute name to the equivalent
+ * CDK L2 construct property accessor.
+ */
+const CFN_GETATT_TO_CDK_PROP: Record<string, Record<string, string>> = {
+    // Lambda
+    'AWS::Lambda::Function': {
+        Arn: 'functionArn',
+        FunctionName: 'functionName',
+    },
+    // DynamoDB
+    'AWS::DynamoDB::Table': {
+        Arn: 'tableArn',
+        StreamArn: 'tableStreamArn',
+    },
+    // S3
+    'AWS::S3::Bucket': {
+        Arn: 'bucketArn',
+        DomainName: 'bucketDomainName',
+        DualStackDomainName: 'bucketDualStackDomainName',
+        RegionalDomainName: 'bucketRegionalDomainName',
+        WebsiteURL: 'bucketWebsiteUrl',
+    },
+    // Step Functions
+    'AWS::StepFunctions::StateMachine': {
+        Arn: 'stateMachineArn',
+        Name: 'stateMachineName',
+    },
+    // SQS
+    'AWS::SQS::Queue': {
+        Arn: 'queueArn',
+        QueueName: 'queueName',
+        QueueUrl: 'queueUrl',
+    },
+    // SNS
+    'AWS::SNS::Topic': {
+        TopicArn: 'topicArn',
+        TopicName: 'topicName',
+    },
+    // Events
+    'AWS::Events::EventBus': {
+        Arn: 'eventBusArn',
+        Name: 'eventBusName',
+    },
+    'AWS::Events::Rule': {
+        Arn: 'ruleArn',
+    },
+    // Scheduler
+    'AWS::Scheduler::ScheduleGroup': {
+        Arn: 'scheduleGroupArn',
+    },
+    // CloudWatch
+    'AWS::CloudWatch::Alarm': {
+        Arn: 'alarmArn',
+        AlarmName: 'alarmName',
+    },
+    // Secrets Manager
+    'AWS::SecretsManager::Secret': {
+        Id: 'secretArn',
+    },
+};
+
+export const CFN_TYPE_ORDER: Record<string, number> = {
+    'AWS::SNS::Topic': 10,
+    'AWS::SNS::Subscription': 11,
+
+    'AWS::ApiGateway::RestApi': 20,
+    'AWS::ApiGateway::ApiKey': 21,
+    'AWS::ApiGateway::RequestValidator': 22,
+    'AWS::ApiGateway::Resource': 23,
+    'AWS::ApiGateway::Method': 24,
+    'AWS::ApiGateway::UsagePlan': 25,
+
+    'AWS::CloudWatch::Alarm': 30,
+};
+
+/**
  * Resolves a CloudFormation `Fn::GetAtt`/`Ref` parent reference to the CDK variable expression.
  * - `Fn::GetAtt: [RestApiId, RootResourceId]` → `restApiVar.root`
  * - `Ref: ResourceLogicalId` → `resourceVar`
@@ -585,7 +661,14 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Subscription',
         cfnNameProp: '',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map<
+            string,
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>
+            ) => Record<string, unknown>
+        >([
             [
                 'RedrivePolicy',
                 v => {
@@ -615,14 +698,19 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'Endpoint',
-                v => {
+                (v, _allProps, resourceTypes) => {
                     const intrinsic = detectIntrinsic(v);
                     const logicalId = resolveLogicalId(intrinsic);
                     if (!logicalId) return { endpoint: new RawTs(valueToTs(v)) };
                     const varName = pascalToCamel(generateCdkId(logicalId));
                     if (intrinsic!.fn === 'Fn::GetAtt') {
                         const [, attribute] = intrinsic!.arg as [string, string];
-                        return { endpoint: new RawTs(`${varName}.attr${attribute}`) };
+                        const cfnType = resourceTypes[logicalId];
+                        const cdkProp = cfnType
+                            ? CFN_GETATT_TO_CDK_PROP[cfnType]?.[attribute]
+                            : undefined;
+                        const accessor = cdkProp ?? `attr${attribute}`;
+                        return { endpoint: new RawTs(`${varName}.${accessor}`) };
                     }
                     return { endpoint: new RawTs(varName) };
                 },

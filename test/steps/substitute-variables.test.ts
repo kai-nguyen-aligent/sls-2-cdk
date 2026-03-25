@@ -247,7 +247,9 @@ describe('substituteVariables', () => {
             const result = substituteVariables(ymlPath);
 
             expect(result.subFiles).toContain(path.join(tmpDir, 'env-vars-substitution.json'));
-            expect(result.subFiles).toContain(path.join(tmpDir, 'serverless-vars-substitution.yml'));
+            expect(result.subFiles).toContain(
+                path.join(tmpDir, 'serverless-vars-substitution.yml')
+            );
         });
 
         it('should delete all -sub files on cleanup', () => {

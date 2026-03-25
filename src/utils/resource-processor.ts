@@ -6,7 +6,7 @@ import type {
     SkippedResource,
 } from '../types/index.js';
 import { generateCdkId, pascalToCamel, valueToTs } from './cfn-to-ts.js';
-import { CFN_TO_CDK, IGNORE_LOGICAL_IDS } from './construct-map.js';
+import { CFN_TO_CDK, IGNORE_LOGICAL_IDS } from './resources-config.js';
 
 interface ResolvedResources {
     entries: ResourceEntry[];
@@ -24,7 +24,8 @@ interface ResolvedResources {
 function processProperties(
     mapping: CdkMapping,
     keepNames: boolean,
-    properties: Record<string, unknown> | undefined
+    properties: Record<string, unknown> | undefined,
+    resourceTypes: Record<string, string>
 ): Record<string, unknown> {
     if (!properties) return {};
 
@@ -41,7 +42,7 @@ function processProperties(
     if (mapping.propExpansions) {
         for (const [key, expand] of mapping.propExpansions) {
             if (key in result) {
-                Object.assign(result, expand(result[key], result));
+                Object.assign(result, expand(result[key], result, resourceTypes));
                 delete result[key];
             }
         }
@@ -58,6 +59,9 @@ export function resolveResources(
     const moduleAliases = new Map<string, string>();
     const generated: GeneratedResource[] = [];
     const skipped: SkippedResource[] = [];
+    const resourceTypes = Object.fromEntries(
+        Object.entries(template.Resources).map(([id, r]) => [id, r.Type])
+    );
 
     for (const [logicalId, resource] of Object.entries(template.Resources)) {
         if (IGNORE_LOGICAL_IDS.has(logicalId)) {
@@ -89,7 +93,8 @@ export function resolveResources(
         const properties: Record<string, unknown> = processProperties(
             mapping,
             keepNames,
-            resource.Properties
+            resource.Properties,
+            resourceTypes
         );
 
         entries.push({

@@ -1,4 +1,4 @@
-import { SLS_LOGICAL_ID_SUFFIXES } from './construct-map.js';
+import { SLS_LOGICAL_ID_SUFFIXES } from './resources-config.js';
 
 /** Wraps a TypeScript expression that should be emitted verbatim without quoting. */
 export class RawTs {

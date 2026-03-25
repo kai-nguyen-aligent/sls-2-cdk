@@ -170,7 +170,11 @@ export interface CdkMapping {
      */
     propExpansions?: Map<
         string,
-        (value: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+        (
+            value: unknown,
+            allProps: Record<string, unknown>,
+            resourceTypes: Record<string, string>
+        ) => Record<string, unknown>
     >;
 }
 
