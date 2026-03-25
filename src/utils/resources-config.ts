@@ -683,9 +683,14 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'TopicArn',
-                v => ({
-                    topic: new RawTs(`sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v)})`),
-                }),
+                v => {
+                    const intrinsic = detectIntrinsic(v);
+                    const topicLogicalId = resolveLogicalId(intrinsic);
+                    const topicVar = topicLogicalId
+                        ? pascalToCamel(generateCdkId(topicLogicalId))
+                        : `sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v)})`;
+                    return { topic: new RawTs(topicVar) };
+                },
             ],
             [
                 'Protocol',
@@ -786,15 +791,25 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(),
         propExpansions: new Map<
             string,
-            (v: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>
+            ) => Record<string, unknown>
         >([
             [
                 'Dimensions',
-                v => {
+                (v, _allProps, resourceTypes) => {
                     const dims = (v ?? []) as Array<{ Name: string; Value: unknown }>;
                     const map: Record<string, unknown> = {};
                     for (const d of dims) {
-                        map[d.Name] = d.Value;
+                        const intrinsic = detectIntrinsic(d.Value);
+                        const logicalId = resolveLogicalId(intrinsic);
+
+                        map[d.Name] =
+                            logicalId && resourceTypes[logicalId]
+                                ? new RawTs(pascalToCamel(generateCdkId(logicalId)))
+                                : d.Value;
                     }
                     return { dimensionsMap: map };
                 },
