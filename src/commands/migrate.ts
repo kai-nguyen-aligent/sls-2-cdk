@@ -9,7 +9,7 @@ import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { updateSharedStack } from '../steps/update-shared-stack.js';
-import { cleanupSubFiles, writeStepOutput } from '../utils/file-io.js';
+import { cleanupSubFiles, createStepOutputDir, writeStepOutput } from '../utils/file-io.js';
 import { extractStateMachineDefinitions } from '../utils/resources/state-machine.js';
 import { generateCdkService, validateCdkWorkspace } from '../utils/workspace.js';
 
@@ -145,8 +145,7 @@ export default class Migrate extends Command {
             ? path.join(intermediateDir, relServicePath)
             : intermediateDir;
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
-        // TODO: remove stepOutputDir if exist, create if not, move to util/file-io.ts
-        fs.mkdirSync(stepOutputDir, { recursive: true });
+        createStepOutputDir(stepOutputDir);
 
         this.log('Step 1: Substituting variables...');
         const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>

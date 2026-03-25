@@ -49,6 +49,7 @@ bin/
 
 ## Workflow Rules
 
+- When generating function, do not add function return type. If you really need function return type, add it then remove it once code modification is done.
 - After every code modification, run `pnpm run lint` and fix any errors before considering the task complete.
 
 ## Coding Conventions
