@@ -248,6 +248,16 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(['BillingMode', 'ProvisionedThroughput']),
         propExpansions: new Map([
             [
+                'TimeToLiveSpecification',
+                v => {
+                    const spec = (v ?? {}) as { AttributeName?: string; Enabled?: boolean };
+                    if (spec.Enabled && spec.AttributeName) {
+                        return { timeToLiveAttribute: spec.AttributeName };
+                    }
+                    return {};
+                },
+            ],
+            [
                 'AttributeDefinitions',
                 (attrDefs, allProps) => {
                     // Build a lookup from attribute name to DynamoDB type (S/N/B)
@@ -574,9 +584,23 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         importAlias: 'sns',
         className: 'Subscription',
         cfnNameProp: '',
-        // RedrivePolicy is replaced by deadLetterQueue: IQueue construct reference in L2
-        omitProps: new Set(['RedrivePolicy']),
+        omitProps: new Set(),
         propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+            [
+                'RedrivePolicy',
+                v => {
+                    const policy = (v ?? {}) as { deadLetterTargetArn?: unknown };
+                    const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
+                    const dlqLogicalId =
+                        intrinsic?.fn === 'Fn::GetAtt'
+                            ? (intrinsic.arg as [string, string])[0]
+                            : null;
+                    const dlqVar = dlqLogicalId
+                        ? pascalToCamel(generateCdkId(dlqLogicalId))
+                        : `/* TODO: resolve dead-letter queue */`;
+                    return { deadLetterQueue: new RawTs(dlqVar) };
+                },
+            ],
             [
                 'TopicArn',
                 v => ({
@@ -592,7 +616,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                             : v,
                 }),
             ],
-            ['Endpoint', v => ({ endpoint: v })],
+            ['Endpoint', v => ({ endpoint: new RawTs(valueToTs(v)) })],
             [
                 'FilterPolicy',
                 v => {
@@ -662,7 +686,10 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Alarm',
         cfnNameProp: 'AlarmName',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map<
+            string,
+            (v: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+        >([
             [
                 'Dimensions',
                 v => {
@@ -672,6 +699,33 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                         map[d.Name] = d.Value;
                     }
                     return { dimensionsMap: map };
+                },
+            ],
+            [
+                'Namespace',
+                (v, allProps) => {
+                    const metricName = allProps['MetricName'];
+                    const dimensionsMap = allProps['dimensionsMap'];
+                    const period = allProps['Period'];
+                    const statistic = allProps['Statistic'] ?? allProps['ExtendedStatistic'];
+
+                    delete allProps['MetricName'];
+                    delete allProps['dimensionsMap'];
+                    delete allProps['Period'];
+                    delete allProps['Statistic'];
+                    delete allProps['ExtendedStatistic'];
+
+                    const parts: string[] = [`namespace: ${valueToTs(v)}`];
+                    if (metricName !== undefined)
+                        parts.push(`metricName: ${valueToTs(metricName)}`);
+                    if (dimensionsMap !== undefined)
+                        parts.push(`dimensionsMap: ${valueToTs(dimensionsMap)}`);
+                    if (typeof period === 'number')
+                        parts.push(`period: cdk.Duration.seconds(${period})`);
+                    else if (period !== undefined) parts.push(`period: ${valueToTs(period)}`);
+                    if (statistic !== undefined) parts.push(`statistic: ${valueToTs(statistic)}`);
+
+                    return { metric: new RawTs(`new cw.Metric({ ${parts.join(', ')} })`) };
                 },
             ],
             [

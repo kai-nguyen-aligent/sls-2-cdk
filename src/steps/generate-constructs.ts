@@ -32,6 +32,8 @@ const CFN_TYPE_ORDER: Record<string, number> = {
     'AWS::ApiGateway::Resource': 40,
     'AWS::ApiGateway::Method': 50,
     'AWS::ApiGateway::UsagePlan': 60,
+
+    'AWS::CloudWatch::Alarm': 100,
 };
 
 function ensureImports(
