@@ -7,6 +7,7 @@ import type {
     UpdateSharedStackResult,
     VariableSubstitutions,
 } from '../types/index.js';
+import { generateCdkId } from '../utils/cfn-to-ts.js';
 
 /**
  * Converts an SSM path to a camelCase JavaScript identifier.
@@ -35,7 +36,10 @@ function ssmPathToIdentifier(ssmPath: string): string {
  * Extracts unique SSM parameters from the variable substitutions map.
  * Deduplicates by SSM path and generates stable camelCase identifiers.
  */
-function extractSsmParameters(substitutions: VariableSubstitutions): SsmParameter[] {
+function extractSsmParameters(
+    substitutions: VariableSubstitutions,
+    servicePrefix: string
+): SsmParameter[] {
     const seen = new Set<string>();
     const params: SsmParameter[] = [];
 
@@ -49,9 +53,12 @@ function extractSsmParameters(substitutions: VariableSubstitutions): SsmParamete
         if (seen.has(ssmPath)) continue;
         seen.add(ssmPath);
 
-        const identifier = ssmPathToIdentifier(ssmPath);
-        const varName = identifier || 'ssmParam';
-        const cdkId = varName.charAt(0).toUpperCase() + varName.slice(1);
+        const identifier = ssmPathToIdentifier(ssmPath) || 'ssmParam';
+        const cdkId = generateCdkId(
+            identifier.charAt(0).toUpperCase() + identifier.slice(1),
+            servicePrefix
+        );
+        const varName = cdkId.charAt(0).toLowerCase() + cdkId.slice(1);
 
         params.push({ expression, ssmPath, varName, cdkId });
     }
@@ -63,7 +70,10 @@ function extractSsmParameters(substitutions: VariableSubstitutions): SsmParamete
         nameCounts.set(param.varName, count + 1);
         if (count > 0) {
             const varName = `${param.varName}${count + 1}`;
-            const cdkId = varName.charAt(0).toUpperCase() + varName.slice(1);
+            const cdkId = generateCdkId(
+                varName.charAt(0).toUpperCase() + varName.slice(1),
+                servicePrefix
+            );
             return { ...param, varName, cdkId };
         }
         return param;
@@ -197,13 +207,14 @@ function updateGetProps(stackClass: ClassDeclaration, params: SsmParameter[]): v
  */
 export function updateSharedStack(
     substitutions: VariableSubstitutions,
-    outputPath: string
+    outputPath: string,
+    servicePrefix: string
 ): UpdateSharedStackResult {
     if (!fs.existsSync(outputPath)) {
         throw new Error(`Shared stack file not found: ${outputPath}`);
     }
 
-    const ssmParameters = extractSsmParameters(substitutions);
+    const ssmParameters = extractSsmParameters(substitutions, servicePrefix);
 
     const project = new Project();
     const sourceFile = project.addSourceFileAtPath(outputPath);

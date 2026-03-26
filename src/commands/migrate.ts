@@ -170,7 +170,8 @@ export default class Migrate extends Command {
         const sharedStackResult = await this.runStep('04-update-shared-stack', stepOutputDir, () =>
             updateSharedStack(
                 varResult.data.substitutions,
-                path.join(destinationDir, 'libs', 'infra', 'src', 'index.ts')
+                path.join(destinationDir, 'libs', 'infra', 'src', 'index.ts'),
+                servicePrefix
             )
         );
 
