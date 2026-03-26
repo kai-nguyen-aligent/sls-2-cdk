@@ -35,6 +35,21 @@ export const IGNORE_LOGICAL_IDS = new Set<string>([
  * Maps CloudFormation resource type + GetAtt attribute name to the equivalent
  * CDK L2 construct property accessor.
  */
+/**
+ * Maps CloudFormation resource type to the CDK L2 construct property returned by `Ref`.
+ */
+const CFN_REF_TO_CDK_PROP: Record<string, string> = {
+    'AWS::Lambda::Function': 'functionName',
+    'AWS::DynamoDB::Table': 'tableName',
+    'AWS::S3::Bucket': 'bucketName',
+    'AWS::SQS::Queue': 'queueUrl',
+    'AWS::SNS::Topic': 'topicArn',
+    'AWS::StepFunctions::StateMachine': 'stateMachineName',
+    'AWS::Events::EventBus': 'eventBusName',
+    'AWS::CloudWatch::Alarm': 'alarmName',
+    'AWS::SecretsManager::Secret': 'secretArn',
+};
+
 const CFN_GETATT_TO_CDK_PROP: Record<string, Record<string, string>> = {
     // Lambda
     'AWS::Lambda::Function': {
@@ -739,18 +754,25 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                 (v, _allProps, resourceTypes, servicePrefix) => {
                     const intrinsic = detectIntrinsic(v);
                     const logicalId = resolveLogicalId(intrinsic);
-                    if (!logicalId) return { endpoint: new RawTs(valueToTs(v, servicePrefix)) };
+
+                    if (!logicalId) {
+                        return { endpoint: new RawTs(valueToTs(v, servicePrefix)) };
+                    }
+
                     const varName = pascalToCamel(generateCdkId(logicalId, servicePrefix));
+                    const cfnType = resourceTypes[logicalId];
+
                     if (intrinsic!.fn === 'Fn::GetAtt') {
                         const [, attribute] = intrinsic!.arg as [string, string];
-                        const cfnType = resourceTypes[logicalId];
                         const cdkProp = cfnType
                             ? CFN_GETATT_TO_CDK_PROP[cfnType]?.[attribute]
                             : undefined;
                         const accessor = cdkProp ?? `attr${attribute}`;
                         return { endpoint: new RawTs(`${varName}.${accessor}`) };
                     }
-                    return { endpoint: new RawTs(varName) };
+
+                    const cdkProp = cfnType ? CFN_REF_TO_CDK_PROP[cfnType] : undefined;
+                    return { endpoint: new RawTs(cdkProp ? `${varName}.${cdkProp}` : varName) };
                 },
             ],
             [
@@ -852,10 +874,26 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                         const intrinsic = detectIntrinsic(d.Value);
                         const logicalId = resolveLogicalId(intrinsic);
 
-                        map[d.Name] =
-                            logicalId && resourceTypes[logicalId]
-                                ? new RawTs(pascalToCamel(generateCdkId(logicalId, servicePrefix)))
-                                : d.Value;
+                        if (!logicalId) {
+                            map[d.Name] = d.Value;
+                            continue;
+                        }
+
+                        const varName = pascalToCamel(generateCdkId(logicalId, servicePrefix));
+                        const cfnType = resourceTypes[logicalId];
+
+                        if (intrinsic?.fn === 'Fn::GetAtt') {
+                            const [, attribute] = intrinsic!.arg as [string, string];
+                            const cdkProp = cfnType
+                                ? CFN_GETATT_TO_CDK_PROP[cfnType]?.[attribute]
+                                : undefined;
+                            const accessor = cdkProp ?? `attr${attribute}`;
+                            map[d.Name] = new RawTs(`${varName}.${accessor}`);
+                            continue;
+                        }
+
+                        const cdkProp = cfnType ? CFN_REF_TO_CDK_PROP[cfnType] : undefined;
+                        map[d.Name] = new RawTs(cdkProp ? `${varName}.${cdkProp}` : varName);
                     }
                     return { dimensionsMap: map };
                 },

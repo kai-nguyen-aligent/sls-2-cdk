@@ -35,7 +35,7 @@ export function resolveEnvValueForFile(
 ): string {
     if (typeof value === 'string') {
         const cdkRef = ssmPlaceholderMap.get(value);
-        if (cdkRef) return cdkRef.replace('props!.', 'props?.');
+        if (cdkRef) return cdkRef;
     }
     return valueToTs(value, servicePrefix);
 }
@@ -136,7 +136,7 @@ export function generateLambdaFunctionsFile(
             name: 'lambdaFunctions',
             parameters: [
                 { name: 'scope', type: 'Construct' },
-                { name: 'props?', type: 'SharedInfraProps' },
+                { name: 'props', type: 'SharedInfraProps' },
             ],
         });
     }
