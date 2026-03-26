@@ -278,6 +278,21 @@ export interface ExtractStateMachineDefinitionsResult {
 }
 
 // ============================================================
+// Dependency Migration Types
+// ============================================================
+
+export interface MigrateDependenciesResult {
+    /** Dependencies added to the destination package.json */
+    added: Record<string, string>;
+    /** Dependency names already present in the destination (skipped) */
+    skipped: string[];
+    /** Count of added dependencies */
+    addedCount: number;
+    /** Count of skipped dependencies */
+    skippedCount: number;
+}
+
+// ============================================================
 // Pipeline / Orchestration Types
 // ============================================================
 

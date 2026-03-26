@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import { buildEnvMap } from '../steps/build-env-map.js';
 import { generateConstructs } from '../steps/generate-constructs.js';
+import { migrateDependencies } from '../steps/migrate-dependencies.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
 import { runServerlessPackage } from '../steps/sls-package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
@@ -213,10 +214,18 @@ export default class Migrate extends Command {
             migrateRuntimeCode(servicePath, genResult.data)
         );
 
-        // TODO: Step 9: migrate dependencies from package.json to the ROOT package.json of CDK project.
+        this.log('Step 9: Migrating dependencies...');
+        const depsResult = await this.runStep('09-migrate-dependencies', stepOutputDir, () =>
+            migrateDependencies(servicePath, destinationDir)
+        );
 
-        // TODO: As user if they want to remove sub files
-        cleanupSubFiles(varResult.data.subFiles);
+        const shouldCleanup = await confirm({
+            message: 'Remove migration steps output directory?',
+            default: false,
+        });
+        if (shouldCleanup) {
+            cleanupSubFiles(varResult.data.subFiles);
+        }
 
         // Summary
         this.log('---');
@@ -228,6 +237,9 @@ export default class Migrate extends Command {
         this.log(`  Step Functions:    ${smResult.data.count} definitions extracted`);
         this.log(
             `  CDK constructs:    ${constructResult.data.generatedCount} generated, ${constructResult.data.skippedCount} skipped`
+        );
+        this.log(
+            `  Dependencies:      ${depsResult.data.addedCount} added, ${depsResult.data.skippedCount} already present`
         );
         this.log(`  Intermediate output files in:   ${intermediateDir}`);
         // TODO: next step after migration
