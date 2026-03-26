@@ -166,13 +166,16 @@ export function generateApiGatewayFile(
         { name: 'scope', type: 'Construct' },
     ];
     if (hasLambdaIntegrations) {
-        ctorParams.push({ name: 'lambdas?', type: 'ReturnType<typeof lambdaFunctions>' });
+        ctorParams.push({
+            name: 'lambdas',
+            type: 'Record<string, cdk.aws_lambda_nodejs.NodejsFunction>',
+        });
     }
     if (hasSqsIntegrations) {
-        ctorParams.push({ name: 'queues?', type: 'Record<string, sqs.Queue>' });
+        ctorParams.push({ name: 'queues', type: 'Record<string, sqs.Queue>' });
     }
     if (hasSfnIntegrations) {
-        ctorParams.push({ name: 'stateMachines?', type: 'Record<string, sfn.StateMachine>' });
+        ctorParams.push({ name: 'stateMachines', type: 'Record<string, sfn.StateMachine>' });
     }
 
     const ctor = cls.getConstructors()[0] ?? cls.addConstructor({ parameters: ctorParams });
@@ -247,10 +250,7 @@ export function generateApiGatewayFile(
         }
     };
 
-    if (
-        allGeneratedCode.some(c => c.includes('cdk.')) ||
-        (hasLambdaIntegrations && existingBody.includes('lambdas ??'))
-    ) {
+    if (hasLambdaIntegrations) {
         addNsImport('cdk', 'aws-cdk-lib');
     }
 
@@ -276,20 +276,6 @@ export function generateApiGatewayFile(
     }
 
     addNamedImport(['Construct'], 'constructs');
-
-    if (hasLambdaIntegrations) {
-        if (
-            !sourceFile.getImportDeclaration(
-                d => d.getModuleSpecifierValue() === './lambda-functions.js'
-            )
-        ) {
-            sourceFile.addImportDeclaration({
-                namedImports: ['lambdaFunctions'],
-                moduleSpecifier: './lambda-functions.js',
-                isTypeOnly: true,
-            });
-        }
-    }
 
     project.saveSync();
 }

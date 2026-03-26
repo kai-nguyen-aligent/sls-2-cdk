@@ -264,13 +264,13 @@ function generateIndexFile(
 
         const args: string[] = ['this'];
         if (lambdaVarNames.length > 0) {
-            args.push(`lambdas: { ${lambdaVarNames.join(', ')} }`);
+            args.push(`{ ${lambdaVarNames.join(', ')} }`);
         }
         if (sqsVarNames.length > 0) {
-            args.push(`queues: { ${sqsVarNames.join(', ')} }`);
+            args.push(`{ ${sqsVarNames.join(', ')} }`);
         }
         if (sfnVarNames.length > 0) {
-            args.push(`stateMachines: { ${sfnVarNames.join(', ')} }`);
+            args.push(`{ ${sfnVarNames.join(', ')} }`);
         }
 
         ctor.addStatements(`new ApiGatewayResources(${args.join(', ')});`);
