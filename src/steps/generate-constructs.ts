@@ -172,7 +172,8 @@ function generateIndexFile(
     sharedEnvVars: EnvVarEntry[],
     ssmPlaceholderMap: Map<string, string>,
     lambdaEntries: ResourceEntry[],
-    apiGwEntries: ResourceEntry[]
+    apiGwEntries: ResourceEntry[],
+    servicePrefix: string
 ): void {
     ensureImports(sourceFile, nonLambdaEntries, moduleAliases, lambdaEntries, apiGwEntries);
 
@@ -200,7 +201,7 @@ function generateIndexFile(
     // sharedEnv stays in index.ts only when there are no extracted lambda functions
     if (hasSharedEnv && lambdaEntries.length === 0 && !existingBody.includes('sharedEnv')) {
         const envProps = sharedEnvVars
-            .map(v => `${v.name}: ${resolveEnvValue(v.value, ssmPlaceholderMap)}`)
+            .map(v => `${v.name}: ${resolveEnvValue(v.value, ssmPlaceholderMap, servicePrefix)}`)
             .join(', ');
         ctor.addStatements(`const sharedEnv = { ${envProps} };`);
     }
@@ -209,7 +210,7 @@ function generateIndexFile(
     if (nonLambdaVpcEntries.length && !existingBody.includes('vpcConfig')) {
         const { vpc, vpcSubnets, securityGroups } = nonLambdaVpcEntries[0]!.properties;
         ctor.addStatements(
-            `const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups }).replaceAll('scope,', 'this,')};`
+            `const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups }, servicePrefix).replaceAll('scope,', 'this,')};`
         );
     }
 
@@ -236,26 +237,31 @@ function generateIndexFile(
 
         if (entry.mapping.className === 'StepFunctionFromFile') {
             const definitionInfo = stateMachineDefinitions[cfnLogicalId];
-            const statement = buildStateMachineStatement(entry, definitionInfo, sourceFilePath);
+            const statement = buildStateMachineStatement(
+                entry,
+                definitionInfo,
+                sourceFilePath,
+                servicePrefix
+            );
             ctor.addStatements([...comments, statement].join('\n'));
             continue;
         }
 
         if (entry.cfnType === 'AWS::Events::Rule') {
             const allEntries = [...nonLambdaEntries, ...lambdaEntries];
-            const statements = buildEventRuleStatements(entry, allEntries);
+            const statements = buildEventRuleStatements(entry, allEntries, servicePrefix);
             ctor.addStatements([...comments, ...statements].join('\n'));
             continue;
         }
 
         if (entry.cfnType === 'AWS::CloudWatch::Alarm') {
             const allEntries = [...nonLambdaEntries, ...lambdaEntries];
-            const statements = buildAlarmStatements(entry, allEntries);
+            const statements = buildAlarmStatements(entry, allEntries, servicePrefix);
             ctor.addStatements([...comments, ...statements].join('\n'));
             continue;
         }
 
-        ctor.addStatements([...comments, buildConstructStatement(entry)].join('\n'));
+        ctor.addStatements([...comments, buildConstructStatement(entry, servicePrefix)].join('\n'));
     }
 
     if (apiGwEntries.length > 0 && !existingBody.includes('ApiGatewayResources(')) {
@@ -295,7 +301,7 @@ export function generateConstructs(
     stateMachineDefinitions: Record<string, StateMachineDefinitionInfo>,
     sharedEnvVars: EnvVarEntry[] = [],
     ssmPlaceholderMap: Map<string, string> = new Map(),
-    servicePrefix?: string
+    servicePrefix: string
 ): GenerateConstructsResult {
     const outputPath = path.join(destinationServicePath, 'src', 'index.ts');
     if (!fs.existsSync(outputPath)) {
@@ -311,13 +317,14 @@ export function generateConstructs(
         sharedEnvVars,
         commonEnvKeys,
         ssmPlaceholderMap,
-        destinationServicePath
+        destinationServicePath,
+        servicePrefix
     );
 
     const apiGwEntries = entries
         .filter(e => API_GW_TYPES.has(e.cfnType))
         .sort((a, b) => (CFN_TYPE_ORDER[a.cfnType] ?? 0) - (CFN_TYPE_ORDER[b.cfnType] ?? 0));
-    generateApiGatewayFile(apiGwEntries, destinationServicePath);
+    generateApiGatewayFile(apiGwEntries, destinationServicePath, servicePrefix);
 
     const nonLambdaEntries = entries
         .filter(e => e.cfnType !== 'AWS::Lambda::Function' && !API_GW_TYPES.has(e.cfnType))
@@ -342,7 +349,8 @@ export function generateConstructs(
         sharedEnvVars,
         ssmPlaceholderMap,
         lambdaEntries,
-        apiGwEntries
+        apiGwEntries,
+        servicePrefix
     );
     project.saveSync();
 

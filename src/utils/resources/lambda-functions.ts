@@ -10,12 +10,16 @@ import { RawTs, pascalToCamel, valueToTs } from '../cfn-to-ts.js';
  * Resolves a lambda env var value to a TypeScript expression.
  * If the value is a known SSM placeholder, emits the CDK props reference instead.
  */
-export function resolveEnvValue(value: unknown, ssmPlaceholderMap: Map<string, string>): string {
+export function resolveEnvValue(
+    value: unknown,
+    ssmPlaceholderMap: Map<string, string>,
+    servicePrefix: string
+): string {
     if (typeof value === 'string') {
         const cdkRef = ssmPlaceholderMap.get(value);
         if (cdkRef) return cdkRef;
     }
-    return valueToTs(value);
+    return valueToTs(value, servicePrefix);
 }
 
 // FIXME: Probably not needed. We should always have PROPS.
@@ -26,13 +30,14 @@ export function resolveEnvValue(value: unknown, ssmPlaceholderMap: Map<string, s
  */
 export function resolveEnvValueForFile(
     value: unknown,
-    ssmPlaceholderMap: Map<string, string>
+    ssmPlaceholderMap: Map<string, string>,
+    servicePrefix: string
 ): string {
     if (typeof value === 'string') {
         const cdkRef = ssmPlaceholderMap.get(value);
         if (cdkRef) return cdkRef.replace('props!.', 'props?.');
     }
-    return valueToTs(value);
+    return valueToTs(value, servicePrefix);
 }
 
 /**
@@ -42,12 +47,15 @@ export function resolveEnvValueForFile(
 export function buildLambdaEnvTs(
     envVars: Record<string, unknown>,
     commonKeys: Set<string>,
-    ssmPlaceholderMap: Map<string, string>
+    ssmPlaceholderMap: Map<string, string>,
+    servicePrefix: string
 ): string {
     const uniqueEntries = Object.entries(envVars).filter(([k]) => !commonKeys.has(k));
     const parts = [
         '...sharedEnv',
-        ...uniqueEntries.map(([k, v]) => `${k}: ${resolveEnvValue(v, ssmPlaceholderMap)}`),
+        ...uniqueEntries.map(
+            ([k, v]) => `${k}: ${resolveEnvValue(v, ssmPlaceholderMap, servicePrefix)}`
+        ),
     ];
     return `{ ${parts.join(', ')} }`;
 }
@@ -59,12 +67,15 @@ export function buildLambdaEnvTs(
 export function buildLambdaEnvForFile(
     envVars: Record<string, unknown>,
     commonKeys: Set<string>,
-    ssmPlaceholderMap: Map<string, string>
+    ssmPlaceholderMap: Map<string, string>,
+    servicePrefix: string
 ): string {
     const uniqueEntries = Object.entries(envVars).filter(([k]) => !commonKeys.has(k));
     const parts = [
         ...(commonKeys.size > 0 ? ['...sharedEnv'] : []),
-        ...uniqueEntries.map(([k, v]) => `${k}: ${resolveEnvValueForFile(v, ssmPlaceholderMap)}`),
+        ...uniqueEntries.map(
+            ([k, v]) => `${k}: ${resolveEnvValueForFile(v, ssmPlaceholderMap, servicePrefix)}`
+        ),
     ];
     return `{ ${parts.join(', ')} }`;
 }
@@ -83,7 +94,8 @@ export function generateLambdaFunctionsFile(
     sharedEnvVars: EnvVarEntry[],
     commonEnvKeys: Set<string>,
     ssmPlaceholderMap: Map<string, string>,
-    destinationServicePath: string
+    destinationServicePath: string,
+    servicePrefix: string
 ): void {
     if (lambdaEntries.length === 0) return;
 
@@ -134,7 +146,10 @@ export function generateLambdaFunctionsFile(
     // sharedEnv declaration
     if (sharedEnvVars.length > 0 && !existingFnBody.includes('sharedEnv')) {
         const envProps = sharedEnvVars
-            .map(v => `${v.name}: ${resolveEnvValueForFile(v.value, ssmPlaceholderMap)}`)
+            .map(
+                v =>
+                    `${v.name}: ${resolveEnvValueForFile(v.value, ssmPlaceholderMap, servicePrefix)}`
+            )
             .join(', ');
         fn.addStatements(`const sharedEnv = { ${envProps} };`);
     }
@@ -143,7 +158,9 @@ export function generateLambdaFunctionsFile(
     if (hasVpc && !existingFnBody.includes('vpcConfig')) {
         const firstVpcEntry = lambdaEntries.find(e => 'vpc' in e.properties)!;
         const { vpc, vpcSubnets, securityGroups } = firstVpcEntry.properties;
-        fn.addStatements(`const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups })};`);
+        fn.addStatements(
+            `const vpcConfig = ${valueToTs({ vpc, vpcSubnets, securityGroups }, servicePrefix)};`
+        );
     }
 
     // Lambda instantiations
@@ -171,7 +188,7 @@ export function generateLambdaFunctionsFile(
             props = {
                 ...props,
                 environment: new RawTs(
-                    buildLambdaEnvForFile(envVars, commonEnvKeys, ssmPlaceholderMap)
+                    buildLambdaEnvForFile(envVars, commonEnvKeys, ssmPlaceholderMap, servicePrefix)
                 ),
             };
         }
@@ -179,11 +196,11 @@ export function generateLambdaFunctionsFile(
         let propsTs: string;
         if ('vpc' in props) {
             const { vpc: _v, vpcSubnets: _vs, securityGroups: _sg, ...rest } = props;
-            const restTs = valueToTs(rest);
+            const restTs = valueToTs(rest, servicePrefix);
             propsTs =
                 restTs === '{}' ? '{ ...vpcConfig }' : restTs.replace(/^\{ /, '{ ...vpcConfig, ');
         } else {
-            propsTs = valueToTs(props);
+            propsTs = valueToTs(props, servicePrefix);
         }
         propsTs = propsTs.replace(/\bthis\b/g, 'scope');
 

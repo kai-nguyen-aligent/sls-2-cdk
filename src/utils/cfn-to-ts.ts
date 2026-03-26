@@ -71,7 +71,7 @@ export function convertServicePrefix(prefix: string): [string, string] {
  * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`)
  * and an optional service prefix (e.g. `AcgInt` stripped from `AcgIntMyFunc`).
  */
-export function generateCdkId(logicalId: string, servicePrefix?: string): string {
+export function generateCdkId(logicalId: string, servicePrefix: string): string {
     let result = logicalId.replace(/Dash|Underscore/g, '');
 
     if (servicePrefix) {
@@ -131,7 +131,7 @@ export function resolveLogicalId(
 /**
  * Converts a CloudFormation intrinsic function to CDK TypeScript code.
  */
-function intrinsicToTs(fn: string, arg: unknown): string {
+function intrinsicToTs(fn: string, arg: unknown, servicePrefix: string): string {
     switch (fn) {
         case 'Ref': {
             const pseudo = PSEUDO_PARAMS[arg as string];
@@ -148,36 +148,36 @@ function intrinsicToTs(fn: string, arg: unknown): string {
             }
             if (Array.isArray(arg)) {
                 const [template, vars] = arg as [string, Record<string, unknown>];
-                return `cdk.Fn.sub('${escapeString(template)}', ${valueToTs(vars)})`;
+                return `cdk.Fn.sub('${escapeString(template)}', ${valueToTs(vars, servicePrefix)})`;
             }
-            return `cdk.Fn.sub(${valueToTs(arg)})`;
+            return `cdk.Fn.sub(${valueToTs(arg, servicePrefix)})`;
         }
         case 'Fn::ImportValue':
             return `cdk.Fn.importValue('${escapeString(String(arg))}')`;
         case 'Fn::Join': {
             const [delimiter, values] = arg as [string, unknown[]];
-            return `cdk.Fn.join('${escapeString(delimiter)}', ${valueToTs(values)})`;
+            return `cdk.Fn.join('${escapeString(delimiter)}', ${valueToTs(values, servicePrefix)})`;
         }
         case 'Fn::Select': {
             const [index, list] = arg as [number, unknown[]];
-            return `cdk.Fn.select(${index}, ${valueToTs(list)})`;
+            return `cdk.Fn.select(${index}, ${valueToTs(list, servicePrefix)})`;
         }
         case 'Fn::Split': {
             const [delim, source] = arg as [string, unknown];
-            return `cdk.Fn.split('${escapeString(delim)}', ${valueToTs(source)})`;
+            return `cdk.Fn.split('${escapeString(delim)}', ${valueToTs(source, servicePrefix)})`;
         }
         case 'Fn::If': {
             const [cond, thenVal, elseVal] = arg as [string, unknown, unknown];
-            return `cdk.Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal)}, ${valueToTs(elseVal)})`;
+            return `cdk.Fn.conditionIf('${escapeString(cond)}', ${valueToTs(thenVal, servicePrefix)}, ${valueToTs(elseVal, servicePrefix)})`;
         }
         case 'Fn::FindInMap': {
             const [mapName, first, second] = arg as [string, unknown, unknown];
-            return `cdk.Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first)}, ${valueToTs(second)})`;
+            return `cdk.Fn.findInMap('${escapeString(mapName)}', ${valueToTs(first, servicePrefix)}, ${valueToTs(second, servicePrefix)})`;
         }
         case 'Fn::Base64':
-            return `cdk.Fn.base64(${valueToTs(arg)})`;
+            return `cdk.Fn.base64(${valueToTs(arg, servicePrefix)})`;
         default:
-            return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg)}`;
+            return `/* Unsupported intrinsic: ${fn} */ ${valueToTs(arg, servicePrefix)}`;
     }
 }
 
@@ -187,27 +187,34 @@ function intrinsicToTs(fn: string, arg: unknown): string {
  * Intrinsic functions are mapped to Fn.* helpers.
  * Output is intentionally compact — run prettier to format the generated file.
  */
-export function valueToTs(value: unknown): string {
+export function valueToTs(value: unknown, servicePrefix: string): string {
     if (value instanceof RawTs) return value.code;
 
     const intrinsic = detectIntrinsic(value);
-    if (intrinsic) return intrinsicToTs(intrinsic.fn, intrinsic.arg);
+    if (intrinsic) return intrinsicToTs(intrinsic.fn, intrinsic.arg, servicePrefix);
 
     if (value === null || value === undefined) return 'undefined';
-    if (typeof value === 'string') return `'${escapeString(value)}'`;
+
+    if (typeof value === 'string') {
+        const id = generateCdkId(value, servicePrefix);
+        return `'${escapeString(id)}'`;
+    }
+
     if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
     if (Array.isArray(value)) {
         if (value.length === 0) return '[]';
-        return `[${value.map(v => valueToTs(v)).join(', ')}]`;
+        return `[${value.map(v => valueToTs(v, servicePrefix)).join(', ')}]`;
     }
 
     if (typeof value === 'object') {
         const entries = Object.entries(value as Record<string, unknown>);
         if (entries.length === 0) return '{}';
-        const props = entries.map(([k, v]) => `${convertPropertyKey(k)}: ${valueToTs(v)}`);
+        const props = entries.map(
+            ([k, v]) => `${convertPropertyKey(k)}: ${valueToTs(v, servicePrefix)}`
+        );
         return `{ ${props.join(', ')} }`;
     }
 
-    return String(value);
+    return generateCdkId(String(value), servicePrefix);
 }

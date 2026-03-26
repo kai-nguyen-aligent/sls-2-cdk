@@ -25,7 +25,8 @@ function processProperties(
     mapping: CdkMapping,
     keepNames: boolean,
     properties: Record<string, unknown> | undefined,
-    resourceTypes: Record<string, string>
+    resourceTypes: Record<string, string>,
+    servicePrefix: string
 ): Record<string, unknown> {
     if (!properties) return {};
 
@@ -42,7 +43,7 @@ function processProperties(
     if (mapping.propExpansions) {
         for (const [key, expand] of mapping.propExpansions) {
             if (key in result) {
-                Object.assign(result, expand(result[key], result, resourceTypes));
+                Object.assign(result, expand(result[key], result, resourceTypes, servicePrefix));
                 delete result[key];
             }
         }
@@ -54,7 +55,7 @@ function processProperties(
 export function resolveResources(
     template: CloudFormationTemplate,
     keepNames: boolean,
-    servicePrefix?: string
+    servicePrefix: string = ''
 ): ResolvedResources {
     const entries: ResourceEntry[] = [];
     const moduleAliases = new Map<string, string>();
@@ -95,7 +96,8 @@ export function resolveResources(
             mapping,
             keepNames,
             resource.Properties,
-            resourceTypes
+            resourceTypes,
+            servicePrefix
         );
 
         entries.push({
@@ -122,17 +124,17 @@ export function resolveResources(
     return { entries, moduleAliases, generated, skipped };
 }
 
-export function buildConstructStatement(entry: ResourceEntry): string {
+export function buildConstructStatement(entry: ResourceEntry, servicePrefix: string): string {
     const varName = pascalToCamel(entry.logicalId.cdkId);
     const props = { ...entry.properties };
 
     let propsTs: string;
     if ('vpc' in props) {
         const { vpc: _vpc, vpcSubnets: _vs, securityGroups: _sg, ...rest } = props;
-        const restTs = valueToTs(rest);
+        const restTs = valueToTs(rest, servicePrefix);
         propsTs = restTs === '{}' ? '{ ...vpcConfig }' : restTs.replace(/^\{ /, '{ ...vpcConfig, ');
     } else {
-        propsTs = valueToTs(props);
+        propsTs = valueToTs(props, servicePrefix);
     }
 
     return (

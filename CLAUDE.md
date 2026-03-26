@@ -1,5 +1,9 @@
 # CLAUDE.md — sls-2-cdk
 
+## Working With Claude
+
+Whenever the user says "No" or corrects an approach, update this file with the relevant rule so the same mistake is not repeated.
+
 ## Project Overview
 
 CLI tool that converts Serverless Framework projects into AWS CDK-ready artifacts. It extracts CloudFormation templates, substitutes variables, and builds Lambda environment variable maps for CDK migration.

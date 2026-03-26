@@ -112,11 +112,11 @@ export const CFN_TYPE_ORDER: Record<string, number> = {
  * - `Fn::GetAtt: [RestApiId, RootResourceId]` → `restApiVar.root`
  * - `Ref: ResourceLogicalId` → `resourceVar`
  */
-function resolveParentExpr(ref: unknown): string {
+function resolveParentExpr(ref: unknown, servicePrefix: string): string {
     const intrinsic = detectIntrinsic(ref);
     const logicalId = resolveLogicalId(intrinsic);
     if (!logicalId) return `/* TODO: resolve parent reference */`;
-    const varName = pascalToCamel(generateCdkId(logicalId));
+    const varName = pascalToCamel(generateCdkId(logicalId, servicePrefix));
     return intrinsic!.fn === 'Fn::GetAtt' ? `${varName}.root` : varName;
 }
 
@@ -218,7 +218,12 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         omitProps: new Set(['Code', 'Handler', 'Runtime', 'Role', 'TracingConfig']),
         propExpansions: new Map<
             string,
-            (v: unknown, allProps: Record<string, unknown>) => Record<string, unknown>
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
+            ) => Record<string, unknown>
         >([
             [
                 'Timeout',
@@ -237,7 +242,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'VpcConfig',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const cfg = (v ?? {}) as {
                         SubnetIds?: unknown[];
                         SecurityGroupIds?: unknown[];
@@ -247,13 +252,13 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     const subnets = subnetIds
                         .map(
                             (id, i) =>
-                                `ec2.Subnet.fromSubnetId(scope, 'Subnet${i}', ${valueToTs(id)})`
+                                `ec2.Subnet.fromSubnetId(scope, 'Subnet${i}', ${valueToTs(id, servicePrefix)})`
                         )
                         .join(', ');
                     const sgs = sgIds
                         .map(
                             (id, i) =>
-                                `ec2.SecurityGroup.fromSecurityGroupId(scope, 'SecurityGroup${i}', ${valueToTs(id)})`
+                                `ec2.SecurityGroup.fromSecurityGroupId(scope, 'SecurityGroup${i}', ${valueToTs(id, servicePrefix)})`
                         )
                         .join(', ');
                     return {
@@ -276,9 +281,9 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         propExpansions: new Map([
             [
                 'FunctionName',
-                v => ({
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
                     target: new RawTs(
-                        `lambda.Function.fromFunctionName(this, 'Target', ${valueToTs(v)})`
+                        `lambda.Function.fromFunctionName(this, 'Target', ${valueToTs(v, servicePrefix)})`
                     ),
                 }),
             ],
@@ -293,20 +298,20 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         propExpansions: new Map([
             [
                 'Content',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const content = (v ?? {}) as {
                         S3Bucket?: unknown;
                         S3Key?: unknown;
                         S3ObjectVersion?: unknown;
                     };
                     if (content.S3Bucket && content.S3Key) {
-                        const bucket = `s3.Bucket.fromBucketName(this, 'ContentBucket', ${valueToTs(content.S3Bucket)})`;
+                        const bucket = `s3.Bucket.fromBucketName(this, 'ContentBucket', ${valueToTs(content.S3Bucket, servicePrefix)})`;
                         const objectVersion = content.S3ObjectVersion
-                            ? `, ${valueToTs(content.S3ObjectVersion)}`
+                            ? `, ${valueToTs(content.S3ObjectVersion, servicePrefix)}`
                             : '';
                         return {
                             code: new RawTs(
-                                `lambda.Code.fromBucket(${bucket}, ${valueToTs(content.S3Key)}${objectVersion})`
+                                `lambda.Code.fromBucket(${bucket}, ${valueToTs(content.S3Key, servicePrefix)}${objectVersion})`
                             ),
                         };
                     }
@@ -445,10 +450,12 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'RequestValidator',
         cfnNameProp: '',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map([
             [
                 'RestApiId',
-                v => ({ restApi: new RawTs(`${resolveParentExpr(v)} as apigw.IRestApi`) }),
+                (v, _allProps, _resourceTypes, servicePrefix): Record<string, unknown> => ({
+                    restApi: new RawTs(`${resolveParentExpr(v, servicePrefix)} as apigw.IRestApi`),
+                }),
             ],
             ['Name', v => ({ requestValidatorName: v })],
         ]),
@@ -460,8 +467,13 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Resource',
         cfnNameProp: '',
         omitProps: new Set(['RestApiId']),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
-            ['ParentId', v => ({ parentRef: new RawTs(resolveParentExpr(v)) })],
+        propExpansions: new Map([
+            [
+                'ParentId',
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
+                    parentRef: new RawTs(resolveParentExpr(v, servicePrefix)),
+                }),
+            ],
         ]),
     },
     'AWS::ApiGateway::Method': {
@@ -472,22 +484,32 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         cfnNameProp: '',
         // AuthorizerId requires an IAuthorizer construct ref; MethodResponses is complex to map
         omitProps: new Set(['RestApiId', 'AuthorizerId', 'MethodResponses']),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
-            ['ResourceId', v => ({ resourceRef: new RawTs(resolveParentExpr(v)) })],
-            ['RequestValidatorId', v => ({ requestValidator: new RawTs(resolveParentExpr(v)) })],
+        propExpansions: new Map([
+            [
+                'ResourceId',
+                (v, _allProps, _resourceTypes, servicePrefix): Record<string, unknown> => ({
+                    resourceRef: new RawTs(resolveParentExpr(v, servicePrefix)),
+                }),
+            ],
+            [
+                'RequestValidatorId',
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
+                    requestValidator: new RawTs(resolveParentExpr(v, servicePrefix)),
+                }),
+            ],
             [
                 'AuthorizationType',
                 v => ({ authorizationType: new RawTs(`apigw.AuthorizationType.${v}`) }),
             ],
             [
                 'Integration',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const integration = (v ?? {}) as Integration;
 
                     if (integration.Type === 'AWS_PROXY' && integration.Uri) {
                         const lambdaId = resolveLambdaLogicalIdFromUri(integration.Uri);
                         if (lambdaId) {
-                            const varName = pascalToCamel(generateCdkId(lambdaId));
+                            const varName = pascalToCamel(generateCdkId(lambdaId, servicePrefix));
                             return {
                                 integrationRef: new RawTs(
                                     `new apigw.LambdaIntegration(${varName})`
@@ -501,7 +523,9 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                         if (uriTemplate.includes(':sqs:')) {
                             const queueId = resolveSqsQueueLogicalIdFromUri(integration.Uri);
                             if (queueId) {
-                                const queueVar = pascalToCamel(generateCdkId(queueId));
+                                const queueVar = pascalToCamel(
+                                    generateCdkId(queueId, servicePrefix)
+                                );
                                 return {
                                     integrationRef: new RawTs(
                                         `new apigw.AwsIntegration({ service: 'sqs', path: \`\${cdk.Aws.ACCOUNT_ID}/\${${queueVar}.queueName}\`, integrationHttpMethod: 'POST' })`
@@ -519,7 +543,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                                 integration.RequestTemplates
                             );
                             if (sfnId) {
-                                const sfnVar = pascalToCamel(generateCdkId(sfnId));
+                                const sfnVar = pascalToCamel(generateCdkId(sfnId, servicePrefix));
                                 return {
                                     integrationRef: new RawTs(
                                         `apigw.StepFunctionsIntegration.startExecution(${sfnVar})`
@@ -592,7 +616,15 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Queue',
         cfnNameProp: 'QueueName',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map<
+            string,
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
+            ) => Record<string, unknown>
+        >([
             [
                 'VisibilityTimeout',
                 v => ({
@@ -624,7 +656,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'RedrivePolicy',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const policy = (v ?? {}) as {
                         deadLetterTargetArn?: unknown;
                         maxReceiveCount?: unknown;
@@ -632,7 +664,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
                     const dlqLogicalId = resolveLogicalId(intrinsic);
                     const dlqVar = dlqLogicalId
-                        ? pascalToCamel(generateCdkId(dlqLogicalId))
+                        ? pascalToCamel(generateCdkId(dlqLogicalId, servicePrefix))
                         : `/* TODO: resolve dead-letter queue */`;
                     const maxReceiveCount = policy.maxReceiveCount ?? 3;
                     return {
@@ -666,29 +698,30 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             (
                 v: unknown,
                 allProps: Record<string, unknown>,
-                resourceTypes: Record<string, string>
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
             ) => Record<string, unknown>
         >([
             [
                 'RedrivePolicy',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const policy = (v ?? {}) as { deadLetterTargetArn?: unknown };
                     const intrinsic = detectIntrinsic(policy.deadLetterTargetArn);
                     const dlqLogicalId = resolveLogicalId(intrinsic);
                     const dlqVar = dlqLogicalId
-                        ? pascalToCamel(generateCdkId(dlqLogicalId))
+                        ? pascalToCamel(generateCdkId(dlqLogicalId, servicePrefix))
                         : `/* TODO: resolve dead-letter queue */`;
                     return { deadLetterQueue: new RawTs(dlqVar) };
                 },
             ],
             [
                 'TopicArn',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const intrinsic = detectIntrinsic(v);
                     const topicLogicalId = resolveLogicalId(intrinsic);
                     const topicVar = topicLogicalId
-                        ? pascalToCamel(generateCdkId(topicLogicalId))
-                        : `sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v)})`;
+                        ? pascalToCamel(generateCdkId(topicLogicalId, servicePrefix))
+                        : `sns.Topic.fromTopicArn(this, 'Topic', ${valueToTs(v, servicePrefix)})`;
                     return { topic: new RawTs(topicVar) };
                 },
             ],
@@ -703,11 +736,11 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'Endpoint',
-                (v, _allProps, resourceTypes) => {
+                (v, _allProps, resourceTypes, servicePrefix) => {
                     const intrinsic = detectIntrinsic(v);
                     const logicalId = resolveLogicalId(intrinsic);
-                    if (!logicalId) return { endpoint: new RawTs(valueToTs(v)) };
-                    const varName = pascalToCamel(generateCdkId(logicalId));
+                    if (!logicalId) return { endpoint: new RawTs(valueToTs(v, servicePrefix)) };
+                    const varName = pascalToCamel(generateCdkId(logicalId, servicePrefix));
                     if (intrinsic!.fn === 'Fn::GetAtt') {
                         const [, attribute] = intrinsic!.arg as [string, string];
                         const cfnType = resourceTypes[logicalId];
@@ -722,7 +755,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'FilterPolicy',
-                v => {
+                (v, _allProps, _resourceTypes, servicePrefix) => {
                     const policy = (v ?? {}) as Record<string, unknown>;
                     const filterMap: Record<string, unknown> = {};
                     for (const [attr, conditions] of Object.entries(policy)) {
@@ -730,13 +763,15 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                             Array.isArray(conditions) &&
                             conditions.every(c => typeof c === 'string')
                         ) {
-                            const allowlist = conditions.map(c => valueToTs(c)).join(', ');
+                            const allowlist = conditions
+                                .map(c => valueToTs(c, servicePrefix))
+                                .join(', ');
                             filterMap[attr] = new RawTs(
                                 `sns.SubscriptionFilter.stringFilter({ allowlist: [${allowlist}] })`
                             );
                         } else {
                             filterMap[attr] = new RawTs(
-                                `sns.SubscriptionFilter.stringFilter(/* TODO: convert filter conditions ${valueToTs(conditions)} */)`
+                                `sns.SubscriptionFilter.stringFilter(/* TODO: convert filter conditions ${valueToTs(conditions, servicePrefix)} */)`
                             );
                         }
                     }
@@ -761,11 +796,21 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'Rule',
         cfnNameProp: 'Name',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map<
+            string,
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
+            ) => Record<string, unknown>
+        >([
             [
                 'ScheduleExpression',
-                v => ({
-                    schedule: new RawTs(`events.Schedule.expression(${valueToTs(v)})`),
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
+                    schedule: new RawTs(
+                        `events.Schedule.expression(${valueToTs(v, servicePrefix)})`
+                    ),
                 }),
             ],
             ['State', v => ({ enabled: v === 'ENABLED' })],
@@ -794,12 +839,13 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             (
                 v: unknown,
                 allProps: Record<string, unknown>,
-                resourceTypes: Record<string, string>
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
             ) => Record<string, unknown>
         >([
             [
                 'Dimensions',
-                (v, _allProps, resourceTypes) => {
+                (v, _allProps, resourceTypes, servicePrefix) => {
                     const dims = (v ?? []) as Array<{ Name: string; Value: unknown }>;
                     const map: Record<string, unknown> = {};
                     for (const d of dims) {
@@ -808,7 +854,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
 
                         map[d.Name] =
                             logicalId && resourceTypes[logicalId]
-                                ? new RawTs(pascalToCamel(generateCdkId(logicalId)))
+                                ? new RawTs(pascalToCamel(generateCdkId(logicalId, servicePrefix)))
                                 : d.Value;
                     }
                     return { dimensionsMap: map };
@@ -816,7 +862,7 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
             ],
             [
                 'Namespace',
-                (v, allProps) => {
+                (v, allProps, _resourceTypes, servicePrefix) => {
                     const metricName = allProps['MetricName'];
                     const dimensionsMap = allProps['dimensionsMap'];
                     const period = allProps['Period'];
@@ -828,15 +874,17 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
                     delete allProps['Statistic'];
                     delete allProps['ExtendedStatistic'];
 
-                    const parts: string[] = [`namespace: ${valueToTs(v)}`];
+                    const parts: string[] = [`namespace: ${valueToTs(v, servicePrefix)}`];
                     if (metricName !== undefined)
-                        parts.push(`metricName: ${valueToTs(metricName)}`);
+                        parts.push(`metricName: ${valueToTs(metricName, servicePrefix)}`);
                     if (dimensionsMap !== undefined)
-                        parts.push(`dimensionsMap: ${valueToTs(dimensionsMap)}`);
+                        parts.push(`dimensionsMap: ${valueToTs(dimensionsMap, servicePrefix)}`);
                     if (typeof period === 'number')
                         parts.push(`period: cdk.Duration.seconds(${period})`);
-                    else if (period !== undefined) parts.push(`period: ${valueToTs(period)}`);
-                    if (statistic !== undefined) parts.push(`statistic: ${valueToTs(statistic)}`);
+                    else if (period !== undefined)
+                        parts.push(`period: ${valueToTs(period, servicePrefix)}`);
+                    if (statistic !== undefined)
+                        parts.push(`statistic: ${valueToTs(statistic, servicePrefix)}`);
 
                     return { metric: new RawTs(`new cw.Metric({ ${parts.join(', ')} })`) };
                 },
@@ -894,19 +942,29 @@ export const CFN_TO_CDK: Record<string, CdkMapping> = {
         className: 'MetricFilter',
         cfnNameProp: 'FilterName',
         omitProps: new Set(),
-        propExpansions: new Map<string, (v: unknown) => Record<string, unknown>>([
+        propExpansions: new Map<
+            string,
+            (
+                v: unknown,
+                allProps: Record<string, unknown>,
+                resourceTypes: Record<string, string>,
+                servicePrefix: string
+            ) => Record<string, unknown>
+        >([
             [
                 'LogGroupName',
-                v => ({
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
                     logGroup: new RawTs(
-                        `logs.LogGroup.fromLogGroupName(this, 'LogGroup', ${valueToTs(v)})`
+                        `logs.LogGroup.fromLogGroupName(this, 'LogGroup', ${valueToTs(v, servicePrefix)})`
                     ),
                 }),
             ],
             [
                 'FilterPattern',
-                v => ({
-                    filterPattern: new RawTs(`logs.FilterPattern.literal(${valueToTs(v)})`),
+                (v, _allProps, _resourceTypes, servicePrefix) => ({
+                    filterPattern: new RawTs(
+                        `logs.FilterPattern.literal(${valueToTs(v, servicePrefix)})`
+                    ),
                 }),
             ],
             [

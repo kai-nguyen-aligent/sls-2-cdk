@@ -37,7 +37,8 @@ function deriveYamlFileName(logicalId: string, properties: Record<string, unknow
  */
 export function extractStateMachineDefinitions(
     template: CloudFormationTemplate,
-    destinationServicePath: string
+    destinationServicePath: string,
+    servicePrefix: string
 ): ExtractStateMachineDefinitionsResult {
     const definitions: Record<string, StateMachineDefinitionInfo> = {};
 
@@ -66,7 +67,7 @@ export function extractStateMachineDefinitions(
             const refResource = template.Resources[refLogicalId];
             const isLambda = refResource?.Type === 'AWS::Lambda::Function';
 
-            const cdkId = generateCdkId(refLogicalId);
+            const cdkId = generateCdkId(refLogicalId, servicePrefix);
             const cdkVarName = pascalToCamel(cdkId);
 
             resolvedAsl = resolvedAsl.replaceAll(`\${${hash}}`, `\${${cdkVarName}}`);
@@ -92,7 +93,8 @@ export function extractStateMachineDefinitions(
 export function buildStateMachineStatement(
     entry: ResourceEntry,
     definitionInfo: StateMachineDefinitionInfo | undefined,
-    sourceFilePath: string
+    sourceFilePath: string,
+    servicePrefix: string
 ): string {
     const { cdkId } = entry.logicalId;
     const varName = pascalToCamel(cdkId);
@@ -123,7 +125,7 @@ export function buildStateMachineStatement(
         );
     }
 
-    const allProps = valueToTs(props);
+    const allProps = valueToTs(props, servicePrefix);
 
     return (
         `const ${varName} = new ${entry.mapping.importAlias}.${entry.mapping.className}` +

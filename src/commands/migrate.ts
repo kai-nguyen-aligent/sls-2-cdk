@@ -96,14 +96,13 @@ export default class Migrate extends Command {
                   })
               );
 
-        const rawServicePrefix =
+        const servicePrefix =
             flags['service-prefix'] ??
             (await input({
                 message:
                     'Service prefix to strip from CDK IDs and variable names (e.g. acg-int, sls-int). Leave blank to skip:',
                 default: '',
             }));
-        const servicePrefix = rawServicePrefix || undefined;
 
         const error = validateCdkWorkspace(destinationDir);
         if (error) {
@@ -138,7 +137,7 @@ export default class Migrate extends Command {
         intermediateDir: string,
         destinationDir: string,
         keepNames: boolean,
-        servicePrefix?: string
+        servicePrefix: string
     ): Promise<void> {
         const servicePath = path.dirname(serverlessYmlPath);
         const relServicePath = path.relative(rootDir, servicePath);
@@ -193,7 +192,7 @@ export default class Migrate extends Command {
         const smResult = await this.runStep(
             '06-extract-state-machine-definitions',
             stepOutputDir,
-            () => extractStateMachineDefinitions(template, genResult.data)
+            () => extractStateMachineDefinitions(template, genResult.data, servicePrefix)
         );
 
         this.log('Step 7: Generating CDK constructs...');

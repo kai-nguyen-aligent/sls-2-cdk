@@ -10,10 +10,11 @@ import { buildConstructStatement } from '../resource-processor.js';
 function buildUsagePlanStatements(
     entry: ResourceEntry,
     restApiEntries: ResourceEntry[],
-    apiKeyEntries: ResourceEntry[]
+    apiKeyEntries: ResourceEntry[],
+    servicePrefix: string
 ): string[] {
     const usagePlanVar = pascalToCamel(entry.logicalId.cdkId);
-    const statements: string[] = [buildConstructStatement(entry)];
+    const statements: string[] = [buildConstructStatement(entry, servicePrefix)];
 
     for (const restApiEntry of restApiEntries) {
         const restApiVar = pascalToCamel(restApiEntry.logicalId.cdkId);
@@ -30,7 +31,7 @@ function buildUsagePlanStatements(
     return statements;
 }
 
-function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
+function buildApiGatewayMethodStatement(entry: ResourceEntry, servicePrefix: string): string {
     const props = { ...entry.properties };
 
     const resourceRef = props['resourceRef'];
@@ -44,12 +45,12 @@ function buildApiGatewayMethodStatement(entry: ResourceEntry): string {
         resourceRef instanceof RawTs ? resourceRef.code : `/* TODO: resolve ResourceId */`;
     const integrationExpr =
         integrationRef instanceof RawTs ? integrationRef.code : `/* TODO: add integration */`;
-    const optionsTs = Object.keys(props).length > 0 ? `, ${valueToTs(props)}` : '';
+    const optionsTs = Object.keys(props).length > 0 ? `, ${valueToTs(props, servicePrefix)}` : '';
 
-    return `${resourceExpr}.addMethod(${valueToTs(httpMethod)}, ${integrationExpr}${optionsTs});`;
+    return `${resourceExpr}.addMethod(${valueToTs(httpMethod, servicePrefix)}, ${integrationExpr}${optionsTs});`;
 }
 
-function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
+function buildApiGatewayResourceStatement(entry: ResourceEntry, servicePrefix: string): string {
     const { cdkId } = entry.logicalId;
     const varName = pascalToCamel(cdkId);
     const props = entry.properties;
@@ -59,7 +60,7 @@ function buildApiGatewayResourceStatement(entry: ResourceEntry): string {
 
     const parentExpr = parentRef instanceof RawTs ? parentRef.code : `/* TODO: resolve ParentId */`;
 
-    return `const ${varName} = ${parentExpr}.addResource(${valueToTs(pathPart)});`;
+    return `const ${varName} = ${parentExpr}.addResource(${valueToTs(pathPart, servicePrefix)});`;
 }
 
 /**
@@ -135,7 +136,8 @@ export function extractApiGwIntegrationVarNames(apiGwEntries: ResourceEntry[]): 
  */
 export function generateApiGatewayFile(
     apiGwEntries: ResourceEntry[],
-    destinationServicePath: string
+    destinationServicePath: string,
+    servicePrefix: string
 ): void {
     if (apiGwEntries.length === 0) return;
 
@@ -219,13 +221,18 @@ export function generateApiGatewayFile(
 
         let rawStatements: string[];
         if (entry.cfnType === 'AWS::ApiGateway::Resource') {
-            rawStatements = [buildApiGatewayResourceStatement(entry)];
+            rawStatements = [buildApiGatewayResourceStatement(entry, servicePrefix)];
         } else if (entry.cfnType === 'AWS::ApiGateway::Method') {
-            rawStatements = [buildApiGatewayMethodStatement(entry)];
+            rawStatements = [buildApiGatewayMethodStatement(entry, servicePrefix)];
         } else if (entry.cfnType === 'AWS::ApiGateway::UsagePlan') {
-            rawStatements = buildUsagePlanStatements(entry, restApiEntries, apiKeyEntries);
+            rawStatements = buildUsagePlanStatements(
+                entry,
+                restApiEntries,
+                apiKeyEntries,
+                servicePrefix
+            );
         } else {
-            rawStatements = [buildConstructStatement(entry)];
+            rawStatements = [buildConstructStatement(entry, servicePrefix)];
         }
 
         const processedStatements = rawStatements.map(s => {

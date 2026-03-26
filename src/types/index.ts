@@ -173,7 +173,8 @@ export interface CdkMapping {
         (
             value: unknown,
             allProps: Record<string, unknown>,
-            resourceTypes: Record<string, string>
+            resourceTypes: Record<string, string>,
+            servicePrefix: string
         ) => Record<string, unknown>
     >;
 }

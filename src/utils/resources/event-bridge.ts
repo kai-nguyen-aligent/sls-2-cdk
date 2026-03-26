@@ -43,7 +43,11 @@ function resolveInputTransformer(inputTransformer: Record<string, unknown>): str
  * Supports Lambda, Step Functions, SQS, and SNS targets resolved via Ref/Fn::GetAtt.
  * Handles `InputTransformer` by reconstructing a `events.RuleTargetInput` option.
  */
-function resolveEventTarget(target: Record<string, unknown>, allEntries: ResourceEntry[]): string {
+function resolveEventTarget(
+    target: Record<string, unknown>,
+    allEntries: ResourceEntry[],
+    servicePrefix: string
+): string {
     const intrinsic = detectIntrinsic(target['Arn']);
 
     const logicalId = resolveLogicalId(intrinsic);
@@ -54,7 +58,7 @@ function resolveEventTarget(target: Record<string, unknown>, allEntries: Resourc
             : '';
 
     if (logicalId) {
-        const varName = pascalToCamel(generateCdkId(logicalId));
+        const varName = pascalToCamel(generateCdkId(logicalId, servicePrefix));
         const matchingEntry = allEntries.find(e => e.logicalId.cfnLogicalId === logicalId);
 
         switch (matchingEntry?.cfnType) {
@@ -71,12 +75,13 @@ function resolveEventTarget(target: Record<string, unknown>, allEntries: Resourc
         }
     }
 
-    return `/* TODO: resolve target ARN: ${valueToTs(target['Arn'])} */`;
+    return `/* TODO: resolve target ARN: ${valueToTs(target['Arn'], servicePrefix)} */`;
 }
 
 export function buildEventRuleStatements(
     entry: ResourceEntry,
-    allEntries: ResourceEntry[]
+    allEntries: ResourceEntry[],
+    servicePrefix: string
 ): string[] {
     const ruleVar = pascalToCamel(entry.logicalId.cdkId);
 
@@ -89,10 +94,10 @@ export function buildEventRuleStatements(
         ),
     };
 
-    const statements: string[] = [buildConstructStatement(entryWithoutTargets)];
+    const statements: string[] = [buildConstructStatement(entryWithoutTargets, servicePrefix)];
 
     for (const target of rawTargets) {
-        const targetExpr = resolveEventTarget(target, allEntries);
+        const targetExpr = resolveEventTarget(target, allEntries, servicePrefix);
         statements.push(`${ruleVar}.addTarget(${targetExpr});`);
     }
 
