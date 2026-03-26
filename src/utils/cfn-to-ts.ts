@@ -67,12 +67,13 @@ export function convertServicePrefix(prefix: string): [string, string] {
 }
 
 /**
- * Derives a CDK construct ID from a CloudFormation logical ID by stripping
- * well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`)
- * and an optional service prefix (e.g. `AcgInt` stripped from `AcgIntMyFunc`).
+ * Derives a CDK construct ID from a CloudFormation logical ID by stripping:
+ * - Literal tokens `Dash`, `Underscore`, and `Stage` inserted by Serverless Framework
+ * - An optional service prefix (e.g. `AcgInt` stripped from `AcgIntMyFunc`)
+ * - Well-known Serverless Framework suffixes (e.g. `MyFuncLambdaFunction` → `MyFunc`)
  */
 export function generateCdkId(logicalId: string, servicePrefix: string): string {
-    let result = logicalId.replace(/Dash|Underscore/g, '');
+    let result = logicalId.replace(/Dash|Underscore|Stage/g, '');
 
     if (servicePrefix) {
         for (const candidate of convertServicePrefix(servicePrefix)) {

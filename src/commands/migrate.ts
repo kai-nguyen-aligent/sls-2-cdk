@@ -175,12 +175,12 @@ export default class Migrate extends Command {
             )
         );
 
-        // Map SSM placeholder strings → `props!.varName.stringValue` CDK expressions
+        // Map SSM placeholder strings → `props.varName.stringValue` CDK expressions
         const ssmPlaceholderMap = new Map<string, string>();
         for (const param of sharedStackResult.data.ssmParameters) {
             const sub = varResult.data.substitutions[param.expression];
             if (sub?.variableType === 'ssm') {
-                ssmPlaceholderMap.set(sub.placeholder, `props!.${param.varName}.stringValue`);
+                ssmPlaceholderMap.set(sub.placeholder, `props.${param.varName}.stringValue`);
             }
         }
 
