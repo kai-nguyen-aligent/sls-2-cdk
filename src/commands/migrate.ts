@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { buildEnvMap } from '../steps/build-env-map.js';
 import { generateConstructs } from '../steps/generate-constructs.js';
 import { migrateRuntimeCode } from '../steps/migrate-runtime-code.js';
-import { runServerlessPackage } from '../steps/package.js';
+import { runServerlessPackage } from '../steps/sls-package.js';
 import { substituteVariables } from '../steps/substitute-variables.js';
 import { updateSharedStack } from '../steps/update-shared-stack.js';
 import { cleanupSubFiles, createStepOutputDir, writeStepOutput } from '../utils/file-io.js';
@@ -212,6 +212,8 @@ export default class Migrate extends Command {
         await this.runStep('08-migrate-runtime-code', stepOutputDir, () =>
             migrateRuntimeCode(servicePath, genResult.data)
         );
+
+        // TODO: Step 9: migrate dependencies from package.json to the ROOT package.json of CDK project.
 
         // TODO: As user if they want to remove sub files
         cleanupSubFiles(varResult.data.subFiles);

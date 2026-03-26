@@ -9,6 +9,7 @@ const IGNORE_DIRS = new Set(['node_modules', '.serverless', '.build', 'dist']);
 const IGNORE_FILES = [
     'serverless*.{yml,yaml}',
     'package.json',
+    'project.json',
     '*lock*',
     'tsconfig*.json',
     '*.config.{js,mjs,ts,mts}',
