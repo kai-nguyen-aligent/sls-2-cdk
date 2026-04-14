@@ -147,6 +147,10 @@ export default class Migrate extends Command {
         const stepOutputDir = path.join(snapshotDir, 'step-outputs');
         createStepOutputDir(stepOutputDir);
 
+        // TODO: Handle input folder (detect package manager & install dependencies - especially `serverless`)
+
+        // TODO: Prepare output folder - Show message for preparation or using GIT for new branch.
+
         this.log('Step 1: Substituting variables...');
         const varResult = await this.runStep('01-substitute-variables', stepOutputDir, () =>
             substituteVariables(serverlessYmlPath)
@@ -166,6 +170,7 @@ export default class Migrate extends Command {
             buildEnvMap(template)
         );
 
+        // TODO: check if SSM exist, if no -> add; if yes -> ignore
         this.log('Step 4: Updating shared stack with SSM parameters...');
         const sharedStackResult = await this.runStep('04-update-shared-stack', stepOutputDir, () =>
             updateSharedStack(
