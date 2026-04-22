@@ -178,7 +178,11 @@ function substituteScalarValue(
 
 /**
  * Walks all scalar values in a YAML document, substituting external variables
- * and rewriting ${file(...)} paths. Skips CloudFormation !Sub tagged values.
+ * and rewriting ${file(...)} paths.
+ *
+ * CloudFormation intrinsics (e.g. !Sub) are not evaluated or altered structurally;
+ * only external ${...} variables inside them are replaced with placeholders,
+ * allowing CloudFormation to resolve them at deploy time.
  */
 function substituteDocumentVariables(
     doc: ReturnType<typeof parseDocument>,
@@ -189,7 +193,6 @@ function substituteDocumentVariables(
     visit(doc, {
         Scalar(_key, node) {
             if (typeof node.value !== 'string') return;
-            if (node.tag === '!Sub') return;
 
             const original = node.value;
             const modified = substituteScalarValue(

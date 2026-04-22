@@ -27,12 +27,12 @@ A CLI tool that converts [Serverless Framework](https://www.serverless.com/) pro
 
 ## Prerequisites
 
-| Requirement | Version |
-|---|---|
-| Node.js | >= 22.0.0 |
-| pnpm | >= 8 |
-| Serverless Framework | 3.x (invoked via `npx serverless@3.39.0`) |
-| Destination CDK workspace | Bootstrapped with `@aligent/nx-cdk` |
+| Requirement               | Version                                   |
+| ------------------------- | ----------------------------------------- |
+| Node.js                   | >= 22.0.0                                 |
+| pnpm                      | >= 8                                      |
+| Serverless Framework      | 3.x (invoked via `npx serverless@3.39.0`) |
+| Destination CDK workspace | Bootstrapped with `@aligent/nx-cdk`       |
 
 ## Installation
 
@@ -56,13 +56,13 @@ sls-2-cdk migrate [OPTIONS]
 
 ### Options
 
-| Flag | Alias | Description |
-|---|---|---|
-| `--input <dir>` | `-i` | Input directory containing `serverless.yml` or `serverless.yaml` |
-| `--intermediate <dir>` | `-m` | Directory for intermediate JSON output files (default: `.sls-2-cdk`) |
-| `--keep-names` | `-k` | Keep original resource names (e.g. S3 bucket names, DynamoDB table names) |
-| `--destination <dir>` | `-d` | Destination `@aligent/nx-cdk` workspace directory |
-| `--service-prefix <string>` | `-s` | Service prefix to strip from CDK IDs and variable names (e.g. `sls-int`, `acg-int`) |
+| Flag                        | Alias | Description                                                                         |
+| --------------------------- | ----- | ----------------------------------------------------------------------------------- |
+| `--input <dir>`             | `-i`  | Input directory containing `serverless.yml` or `serverless.yaml`                    |
+| `--intermediate <dir>`      | `-m`  | Directory for intermediate JSON output files (default: `.sls-2-cdk`)                |
+| `--keep-names`              | `-k`  | Keep original resource names (e.g. S3 bucket names, DynamoDB table names)           |
+| `--destination <dir>`       | `-d`  | Destination `@aligent/nx-cdk` workspace directory                                   |
+| `--service-prefix <string>` | `-s`  | Service prefix to strip from CDK IDs and variable names (e.g. `sls-int`, `acg-int`) |
 
 When flags are omitted, the CLI prompts for each value interactively.
 
@@ -88,9 +88,9 @@ The tool runs a **9-step pipeline**. Each step writes its result to `<intermedia
 
 Parses `serverless.yml` and any `${file(...)}` referenced files. Replaces external variable expressions with hashed placeholders (`__SLS2CDK_SSM_<hash>__`), creating `-vars-substitution` copies of all affected files.
 
-| Substituted | Preserved |
-|---|---|
-| `${ssm:...}`, `${s3:...}`, `${cf:...}`, `${env:...}`, `${aws:...}` | `${self:...}`, `${sls:...}`, `${opt:...}`, CloudFormation `!Sub` |
+| Substituted                                                        | Preserved                                                                                     |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `${ssm:...}`, `${s3:...}`, `${cf:...}`, `${env:...}`, `${aws:...}` | `${self:...}`, `${sls:...}`, `${opt:...}`, CloudFormation intrinsics (e.g. !Sub, Ref, Fn::\*) |
 
 ### Step 2 -- Serverless Package
 
@@ -103,6 +103,7 @@ Scans all `AWS::Lambda::Function` resources in the template. For each function, 
 ### Step 4 -- Update Shared Stack (SSM Parameters)
 
 Uses `ts-morph` to inject SSM parameter references into the shared infra stack (`libs/infra/src/index.ts`):
+
 - Adds `IStringParameter` / `StringParameter` imports
 - Adds properties to `SharedInfraProps` and the stack class
 - Injects `StringParameter.fromStringParameterName(...)` assignments in the constructor
@@ -181,30 +182,30 @@ services/<name>/
 
 The following CloudFormation resource types are mapped to CDK L2 constructs:
 
-| CloudFormation Type | CDK Construct |
-|---|---|
-| `AWS::Lambda::Function` | `lambdaNodejs.NodejsFunction` |
-| `AWS::Lambda::LayerVersion` | `lambda.LayerVersion` |
-| `AWS::Lambda::EventSourceMapping` | `lambda.EventSourceMapping` |
-| `AWS::DynamoDB::Table` | `dynamodb.Table` |
-| `AWS::S3::Bucket` | `s3.Bucket` |
-| `AWS::StepFunctions::StateMachine` | `StepFunctionFromFile` |
-| `AWS::ApiGateway::RestApi` | `apigw.RestApi` |
-| `AWS::ApiGateway::Resource` | `apigw.Resource` |
-| `AWS::ApiGateway::Method` | `apigw.Method` |
-| `AWS::ApiGateway::ApiKey` | `apigw.ApiKey` |
-| `AWS::ApiGateway::UsagePlan` | `apigw.UsagePlan` |
-| `AWS::ApiGateway::RequestValidator` | `apigw.RequestValidator` |
-| `AWS::SQS::Queue` | `sqs.Queue` |
-| `AWS::SNS::Topic` | `sns.Topic` |
-| `AWS::SNS::Subscription` | `sns.Subscription` |
-| `AWS::Events::EventBus` | `events.EventBus` |
-| `AWS::Events::Rule` | `events.Rule` |
-| `AWS::CloudWatch::Alarm` | `cw.Alarm` |
-| `AWS::Logs::MetricFilter` | `logs.MetricFilter` |
-| `AWS::Scheduler::Schedule` | `scheduler.CfnSchedule` |
-| `AWS::SSM::Parameter` | `ssm.StringParameter` |
-| `AWS::SecretsManager::Secret` | `secretsmanager.Secret` |
+| CloudFormation Type                 | CDK Construct                 |
+| ----------------------------------- | ----------------------------- |
+| `AWS::Lambda::Function`             | `lambdaNodejs.NodejsFunction` |
+| `AWS::Lambda::LayerVersion`         | `lambda.LayerVersion`         |
+| `AWS::Lambda::EventSourceMapping`   | `lambda.EventSourceMapping`   |
+| `AWS::DynamoDB::Table`              | `dynamodb.Table`              |
+| `AWS::S3::Bucket`                   | `s3.Bucket`                   |
+| `AWS::StepFunctions::StateMachine`  | `StepFunctionFromFile`        |
+| `AWS::ApiGateway::RestApi`          | `apigw.RestApi`               |
+| `AWS::ApiGateway::Resource`         | `apigw.Resource`              |
+| `AWS::ApiGateway::Method`           | `apigw.Method`                |
+| `AWS::ApiGateway::ApiKey`           | `apigw.ApiKey`                |
+| `AWS::ApiGateway::UsagePlan`        | `apigw.UsagePlan`             |
+| `AWS::ApiGateway::RequestValidator` | `apigw.RequestValidator`      |
+| `AWS::SQS::Queue`                   | `sqs.Queue`                   |
+| `AWS::SNS::Topic`                   | `sns.Topic`                   |
+| `AWS::SNS::Subscription`            | `sns.Subscription`            |
+| `AWS::Events::EventBus`             | `events.EventBus`             |
+| `AWS::Events::Rule`                 | `events.Rule`                 |
+| `AWS::CloudWatch::Alarm`            | `cw.Alarm`                    |
+| `AWS::Logs::MetricFilter`           | `logs.MetricFilter`           |
+| `AWS::Scheduler::Schedule`          | `scheduler.CfnSchedule`       |
+| `AWS::SSM::Parameter`               | `ssm.StringParameter`         |
+| `AWS::SecretsManager::Secret`       | `secretsmanager.Secret`       |
 
 Resources without an explicit mapping are skipped and reported in the step output.
 
